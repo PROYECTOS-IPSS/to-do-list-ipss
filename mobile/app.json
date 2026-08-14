@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "Task Manager",
+    "slug": "task-manager",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "task-manager",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "plugins": [
+      "expo-router",
+      "expo-dev-client",
+      "expo-secure-store",
+      "expo-camera",
+      "expo-location",
+      "expo-audio",
+      "expo-asset"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "android": {
+      "package": "com.taskmanager.mobile"
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "a1560a2e-5fc2-45b4-8cd7-7507ad38416d"
+      }
+    },
+    "owner": "wuanpack"
+  }
+}
