@@ -8,6 +8,14 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string>();
+  const [loading, setLoading] = useState(false);
   if (user) return <Redirect href="/" />;
-  return <View><Text>Login</Text><TextInput value={email} onChangeText={setEmail} placeholder="Email" autoCapitalize="none" /><TextInput value={password} onChangeText={setPassword} placeholder="Password" secureTextEntry /><Button title="Login" onPress={() => void login(email, password).catch((e: unknown) => setError(e instanceof Error ? e.message : 'Login failed.'))} />{error && <Text>{error}</Text>}<Link href="/auth/register">Create account</Link></View>;
+  const submit = async () => {
+    if (loading) return;
+    setLoading(true); setError(undefined);
+    try { await login(email, password); }
+    catch { setError('No se pudo iniciar sesión. Comprueba tus datos e inténtalo nuevamente.'); }
+    finally { setLoading(false); }
+  };
+  return <View><Text>Login</Text><TextInput value={email} onChangeText={setEmail} placeholder="Email" autoCapitalize="none" editable={!loading} /><TextInput value={password} onChangeText={setPassword} placeholder="Password" secureTextEntry editable={!loading} /><Button title={loading ? 'Logging in...' : 'Login'} onPress={() => void submit()} disabled={loading || !email.trim() || !password} />{error && <Text>{error}</Text>}<Link href="/auth/register">Create account</Link></View>;
 }

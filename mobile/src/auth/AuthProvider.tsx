@@ -18,14 +18,25 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let active = true;
     void (async () => {
-      const storedToken = await authApi.getToken();
-      if (storedToken) {
-        try { setUser(await authApi.me(storedToken)); setToken(storedToken); }
-        catch { await authApi.clearToken(); }
+      try {
+        const storedToken = await authApi.getToken();
+        if (storedToken) {
+          try {
+            const currentUser = await authApi.me(storedToken);
+            if (active) { setUser(currentUser); setToken(storedToken); }
+          } catch {
+            await authApi.clearToken();
+          }
+        }
+      } catch (error) {
+        console.warn('[auth] unable to restore session', error);
+      } finally {
+        if (active) setLoading(false);
       }
-      setLoading(false);
     })();
+    return () => { active = false; };
   }, []);
 
   const value = useMemo<AuthContextValue>(() => ({
