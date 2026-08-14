@@ -1,5 +1,6 @@
 import { prisma } from '../config/prisma';
 import type { CreateTaskInput, UpdateTaskInput } from '../schemas/task.schemas';
+import { removeFile } from './file-storage.service';
 import { HttpError } from '../utils/errors';
 
 export const createTask = (userId: string, input: CreateTaskInput) => prisma.task.create({
@@ -24,6 +25,14 @@ export const updateTask = async (userId: string, id: string, input: UpdateTaskIn
 };
 
 export const deleteTask = async (userId: string, id: string) => {
+  const task = await prisma.task.findFirst({
+    where: { id, userId },
+    select: { images: { select: { url: true } }, audios: { select: { url: true } } }
+  });
+  if (!task) throw new HttpError(404, 'TASK_NOT_FOUND', 'Task not found.');
+
   const result = await prisma.task.deleteMany({ where: { id, userId } });
   if (result.count === 0) throw new HttpError(404, 'TASK_NOT_FOUND', 'Task not found.');
+
+  await Promise.allSettled([...task.images, ...task.audios].map(({ url }) => removeFile(url)));
 };

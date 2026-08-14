@@ -9,7 +9,7 @@ const ensureTask = async (userId: string, taskId: string) => {
 
 export const createImage = async (userId: string, taskId: string, file: Express.Multer.File) => {
   await ensureTask(userId, taskId);
-  const stored = await saveFile(file);
+  const stored = await saveFile(file, 'images');
   try { return await prisma.taskImage.create({ data: { taskId, url: stored.url, filename: stored.filename, mimeType: file.mimetype, size: file.size } }); }
   catch (error) { await removeFile(stored.url); throw error; }
 };
@@ -28,8 +28,8 @@ export const deleteImage = async (userId: string, taskId: string, imageId: strin
 };
 export const createAudio = async (userId: string, taskId: string, file: Express.Multer.File, duration: number) => {
   await ensureTask(userId, taskId);
-  if (!Number.isFinite(duration) || duration < 0 || duration > 3600) throw new HttpError(400, 'INVALID_AUDIO_DURATION', 'Invalid audio duration.');
-  const stored = await saveFile(file);
+  if (!Number.isFinite(duration) || duration <= 0 || duration > 3600) throw new HttpError(400, 'INVALID_AUDIO_DURATION', 'Invalid audio duration.');
+  const stored = await saveFile(file, 'audios');
   try { return await prisma.taskAudio.create({ data: { taskId, url: stored.url, duration, mimeType: file.mimetype, size: file.size } }); }
   catch (error) { await removeFile(stored.url); throw error; }
 };

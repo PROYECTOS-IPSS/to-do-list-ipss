@@ -163,7 +163,7 @@ model TaskAudio {
   id        String   @id @default(uuid())
   taskId    String
   url       String
-  duration  Int
+  duration  Float
   mimeType  String
   size      Int
   createdAt DateTime @default(now())
@@ -172,7 +172,6 @@ model TaskAudio {
 
   @@index([taskId])
 }
-```
 
 ---
 
@@ -246,12 +245,12 @@ DELETE /api/tasks/:id/audios/:audioId
 | Tipo | Estrategia |
 |------|------------|
 | Datos estructurados | PostgreSQL vía Prisma |
-| Imágenes | Archivo en disco local + metadata en PostgreSQL |
-| Audios | Archivo en disco local + metadata en PostgreSQL |
+| Imágenes | Archivo local fuera de PostgreSQL + metadata |
+| Audios | Archivo local fuera de PostgreSQL + metadata |
 | JWT / tokens | expo-secure-store |
-| Preferencias | AsyncStorage |
+| Preferencias | AsyncStorage no sensible |
 
-Las URLs almacenadas apuntan a archivos servidos estáticamente en desarrollo. En producción se adaptan a un bucket de objetos sin cambiar el modelo.
+Los archivos se sirven mediante endpoints autenticados que validan ownership; no se publican mediante `express.static`. En producción, el almacenamiento local puede sustituirse por objetos sin cambiar el modelo de metadata.
 
 ---
 

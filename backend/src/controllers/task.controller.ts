@@ -1,8 +1,12 @@
 import type { RequestHandler } from 'express';
 import * as taskService from '../services/task.service';
+import type { CreateTaskInput, UpdateTaskInput } from '../schemas/task.schemas';
 
 export const createTask: RequestHandler = async (request, response, next) => {
-  try { response.status(201).json(await taskService.createTask(request.userId, request.body)); } catch (error) { next(error); }
+  try {
+    const input = response.locals.body as CreateTaskInput;
+    response.status(201).json(await taskService.createTask(request.userId, input));
+  } catch (error) { next(error); }
 };
 
 export const listTasks: RequestHandler = async (request, response, next) => {
@@ -17,7 +21,10 @@ export const getTask: RequestHandler = async (request, response, next) => {
 };
 
 export const updateTask: RequestHandler = async (request, response, next) => {
-  try { response.json(await taskService.updateTask(request.userId, request.params.id as string, request.body)); } catch (error) { next(error); }
+  try {
+    const input = response.locals.body as UpdateTaskInput;
+    response.json(await taskService.updateTask(request.userId, request.params.id as string, input));
+  } catch (error) { next(error); }
 };
 
 export const deleteTask: RequestHandler = async (request, response, next) => {
