@@ -4,13 +4,13 @@ import { randomUUID } from 'node:crypto';
 
 const root = path.resolve(process.env.UPLOAD_DIR ?? 'uploads');
 
-export const saveFile = async (file: Express.Multer.File) => {
-  const directory = path.join(root, file.fieldname);
+export const saveFile = async (file: Express.Multer.File, directoryName = file.fieldname) => {
+  const directory = path.join(root, directoryName);
   await fs.mkdir(directory, { recursive: true });
   const filename = `${randomUUID()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
   const target = path.join(directory, filename);
   await fs.writeFile(target, file.buffer);
-  return { filename, url: `/uploads/${file.fieldname}/${filename}` };
+  return { filename, url: `/uploads/${directoryName}/${filename}` };
 };
 
 export const removeFile = async (url: string) => {

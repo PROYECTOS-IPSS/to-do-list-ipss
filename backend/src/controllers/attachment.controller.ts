@@ -1,9 +1,10 @@
 import type { RequestHandler } from 'express';
 import * as attachmentService from '../services/attachment.service';
+import { HttpError } from '../utils/errors';
 
 export const createImage: RequestHandler = async (request, response, next) => {
   try {
-    if (!request.file) throw new Error('Image file is required.');
+    if (!request.file) throw new HttpError(400, 'IMAGE_FILE_REQUIRED', 'Image file is required.');
     response.status(201).json(await attachmentService.createImage(request.userId, request.params.id as string, request.file));
   } catch (error) { next(error); }
 };
@@ -18,8 +19,8 @@ export const deleteImage: RequestHandler = async (request, response, next) => {
 
 export const createAudio: RequestHandler = async (request, response, next) => {
   try {
-    if (!request.file) throw new Error('Audio file is required.');
-    const duration = Number(request.body.duration ?? 0);
+    if (!request.file) throw new HttpError(400, 'AUDIO_FILE_REQUIRED', 'Audio file is required.');
+    const { duration } = response.locals.body as { duration: number };
     response.status(201).json(await attachmentService.createAudio(request.userId, request.params.id as string, request.file, duration));
   } catch (error) { next(error); }
 };

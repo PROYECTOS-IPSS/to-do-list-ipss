@@ -54,7 +54,7 @@ model TaskAudio {
   id        String   @id @default(uuid())
   taskId    String
   url       String
-  duration  Int
+  duration  Float
   mimeType  String
   size      Int
   createdAt DateTime @default(now())

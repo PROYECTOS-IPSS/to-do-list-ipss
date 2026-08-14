@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import request from 'supertest';
 import { app } from '../src/server';
 import { prisma } from '../src/config/prisma';
@@ -66,6 +67,10 @@ describe('Authentication', () => {
     const token = signToken(userA);
     const manipulated = `${token.slice(0, -1)}${token.endsWith('a') ? 'b' : 'a'}`;
     expect((await request(app).get('/api/auth/me').set('Authorization', `Bearer ${manipulated}`)).status).toBe(401);
+  });
+  it('rejects expired JWTs', async () => {
+    const expired = jwt.sign({ sub: userA.id }, process.env.JWT_SECRET as string, { expiresIn: -1 });
+    expect((await request(app).get('/api/auth/me').set('Authorization', `Bearer ${expired}`)).status).toBe(401);
   });
 });
 
