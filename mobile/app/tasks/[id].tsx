@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Button, Image, Text, View } from 'react-native';
+import { View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { File } from 'expo-file-system';
 import { useAudioPlayer, useAudioPlayerStatus, type AudioSource } from 'expo-audio';
@@ -7,8 +7,9 @@ import { useAuth } from '../../src/auth/AuthProvider';
 import { attachmentsApi } from '../../src/services/attachments';
 import { requestMicrophonePermission, takePhoto, RecordingPresets, setAudioModeAsync, useAudioRecorder, useAudioRecorderState } from '../../src/services/peripherals';
 import { tasksApi, type Task } from '../../src/services/tasks';
+import { AppBadge, AppButton, AppConfirmModal, AppFeedback, AppHeader, AppImage, AppText, Card, Screen, StateMessage } from '../../src/ui/components';
 
-type ImageAttachment = { id: string; filename: string };
+type ImageAttachment = { id: string; filename: string; url: string; mimeType: string; size: number; createdAt: string };
 type AudioAttachment = { id: string; url: string; duration: number; mimeType: string; size: number; createdAt: string };
 type PendingRecording = { uri: string; duration: number };
 type AudioState = 'idle' | 'requesting_permission' | 'recording' | 'stopping' | 'preview' | 'playing' | 'uploading';
@@ -56,9 +57,12 @@ export default function TaskDetail() {
   const [audioState, setAudioState] = useState<AudioState>('idle');
   const [pendingRecording, setPendingRecording] = useState<PendingRecording>();
   const [playingKey, setPlayingKey] = useState<string>();
+  const [deletingAttachment, setDeletingAttachment] = useState<string>();
+  const [confirmAttachment, setConfirmAttachment] = useState<{ type: 'image' | 'audio'; id: string }>();
+  const [feedback, setFeedback] = useState<{ message: string; tone: 'success' | 'error' | 'info' }>();
   const [loading, setLoading] = useState(true);
   const [imageLoading, setImageLoading] = useState(false);
-  const [deletingAttachment, setDeletingAttachment] = useState<string>();
+  const [imageStatuses, setImageStatuses] = useState<Record<string, 'loading' | 'ready' | 'error'>>({});
   const pendingRecordingRef = useRef<PendingRecording | undefined>(undefined);
 
   const loadData = useCallback(async () => {
@@ -67,7 +71,7 @@ export default function TaskDetail() {
     setError(undefined);
     try {
       const [loadedTask, loadedImages, loadedAudios] = await Promise.all([tasksApi.get(token, id), attachmentsApi.images(token, id), attachmentsApi.audios(token, id)]);
-      setTask(loadedTask); setImages(loadedImages); setAudios(loadedAudios);
+      setTask(loadedTask); setImages(loadedImages); setAudios(loadedAudios); setImageStatuses(Object.fromEntries((loadedImages as ImageAttachment[]).map((image) => [image.id, 'loading'])));
     } catch {
       setError('No se pudo cargar la tarea. Comprueba tu conexión e inténtalo nuevamente.');
     } finally {
@@ -117,7 +121,7 @@ export default function TaskDetail() {
         setPhotoUri(photo.uri);
       }
     } catch {
-      Alert.alert('Cámara no disponible', 'No se pudo capturar o subir la fotografía. Inténtalo nuevamente.');
+      setFeedback({ message: 'No se pudo capturar o subir la foto.', tone: 'error' });
     } finally {
       setImageLoading(false);
     }
@@ -125,10 +129,7 @@ export default function TaskDetail() {
 
   const removeImage = (imageId: string) => {
     if (deletingAttachment || imageLoading || audioState === 'uploading') return;
-    Alert.alert('¿Eliminar imagen?', 'Esta acción no se puede deshacer.', [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Eliminar', style: 'destructive', onPress: () => { void confirmRemoveImage(imageId); } }
-    ]);
+    setConfirmAttachment({ type: 'image', id: imageId });
   };
 
   const confirmRemoveImage = async (imageId: string) => {
@@ -137,21 +138,19 @@ export default function TaskDetail() {
     try {
       await attachmentsApi.deleteImage(token, id, imageId);
       setImages((current) => current.filter((image) => image.id !== imageId));
-      Alert.alert('Imagen eliminada', 'La imagen se eliminó correctamente.');
+      setFeedback({ message: 'Imagen eliminada.', tone: 'success' });
     } catch {
-      Alert.alert('Error', 'No se pudo eliminar la imagen. Inténtalo nuevamente.');
+      setFeedback({ message: 'No se pudo eliminar la imagen. Inténtalo de nuevo.', tone: 'error' });
     } finally {
       setDeletingAttachment(undefined);
+      setConfirmAttachment(undefined);
     }
   };
-
   const removeAudio = (audioId: string) => {
     if (deletingAttachment || imageLoading || audioState === 'uploading') return;
-    Alert.alert('¿Eliminar nota de voz?', 'Esta acción no se puede deshacer.', [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Eliminar', style: 'destructive', onPress: () => { void confirmRemoveAudio(audioId); } }
-    ]);
+    setConfirmAttachment({ type: 'audio', id: audioId });
   };
+
 
   const confirmRemoveAudio = async (audioId: string) => {
     if (!token || !id) return;
@@ -164,19 +163,19 @@ export default function TaskDetail() {
       }
       await attachmentsApi.deleteAudio(token, id, audioId);
       setAudios((current) => current.filter((audio) => audio.id !== audioId));
-      Alert.alert('Audio eliminado', 'La nota de voz se eliminó correctamente.');
+      setFeedback({ message: 'Audio eliminado.', tone: 'success' });
     } catch {
-      Alert.alert('Error', 'No se pudo eliminar la nota de voz. Inténtalo nuevamente.');
+      setFeedback({ message: 'No se pudo eliminar el audio. Inténtalo de nuevo.', tone: 'error' });
     } finally {
       setDeletingAttachment(undefined);
+      setConfirmAttachment(undefined);
     }
   };
 
-  const handleAudioError = (error: unknown, fallback: string) => {
-    console.warn('[audio]', error);
+  const handleAudioError = (_error: unknown, fallback: string) => {
     setAudioError(fallback);
+    setFeedback({ message: fallback, tone: 'error' });
     setAudioState(pendingRecording ? 'preview' : 'idle');
-    Alert.alert('Audio unavailable', fallback);
   };
 
   const startRecording = async () => {
@@ -211,7 +210,6 @@ export default function TaskDetail() {
       setPendingRecording({ uri, duration });
       setAudioState('preview');
     } catch (e) {
-      console.error('[audio] stop error', e);
       handleAudioError(e, 'No se pudo detener la grabación. Inténtalo nuevamente.');
     }
   };
@@ -243,7 +241,7 @@ export default function TaskDetail() {
       discardFile(pendingRecording.uri);
       setPendingRecording(undefined);
       setAudioState('idle');
-      Alert.alert('Audio guardado', 'La nota de voz se guardó correctamente.');
+      setFeedback({ message: 'Nota de voz guardada.', tone: 'success' });
     } catch (e) {
       setAudioState('preview');
       handleAudioError(e, 'No se pudo guardar el audio. Inténtalo nuevamente.');
@@ -281,9 +279,9 @@ export default function TaskDetail() {
     } catch (e) { handleAudioError(e, 'Unable to play audio.'); }
   };
 
-  if (loading) return <View><Text>Loading...</Text></View>;
-  if (error) return <View><Text>{error}</Text><Button title="Retry" onPress={() => void loadData()} disabled={loading} /></View>;
-  if (!task) return <Text>Task not found.</Text>;
+  if (loading) return <Screen><StateMessage title="Cargando tarea..." /></Screen>;
+  if (error) return <Screen><StateMessage title={error} tone="error" actionTitle="Reintentar" onAction={() => void loadData()} /></Screen>;
+  if (!task) return <Screen><StateMessage title="No se encontró la tarea." tone="error" /></Screen>;
 
   const storedLocation = task.latitude !== null && task.longitude !== null && task.locationAccuracy !== null && task.locationTimestamp !== null
     ? { latitude: task.latitude, longitude: task.longitude, accuracy: task.locationAccuracy, timestamp: task.locationTimestamp }
@@ -291,39 +289,42 @@ export default function TaskDetail() {
   const isBusy = audioState === 'requesting_permission' || audioState === 'stopping' || audioState === 'uploading' || imageLoading || Boolean(deletingAttachment);
   const recordingSeconds = recorderState.durationMillis / 1000;
 
-  return <View>
-    <Text>{task.title}</Text>
-    {task.description && <Text>{task.description}</Text>}
-    <Text>{task.completed ? 'Completed' : 'Pending'}</Text>
-    {storedLocation && <View><Text>Location associated</Text><Text>Coordinates: {storedLocation.latitude}, {storedLocation.longitude}</Text><Text>Approximate accuracy: {Math.round(storedLocation.accuracy)} m</Text><Text>Obtained: {new Date(storedLocation.timestamp).toLocaleString()}</Text></View>}
-    {!storedLocation && <Text>No location associated.</Text>}
-    <Button title="Edit" onPress={() => router.back()} disabled={isBusy} />
-    <Button title={imageLoading ? 'Uploading image...' : 'Add photograph'} onPress={() => void addPhoto()} disabled={isBusy} />
-    {photoUri && <Image source={{ uri: photoUri }} style={{ width: 200, height: 200 }} />}
-    {images.length === 0 && <Text>No images.</Text>}
-    {images.map((image) => <View key={image.id}><Text>{image.filename}</Text><Button title={deletingAttachment === image.id ? 'Deleting...' : 'Delete image'} onPress={() => removeImage(image.id)} disabled={isBusy} /></View>)}
-
-    <Text>Voice notes</Text>
-    {audioState === 'recording' && <Text>Recording... {formatDuration(recordingSeconds)}</Text>}
-    {audioState === 'stopping' && <Text>Stopping recording...</Text>}
-    {audioState === 'uploading' && <Text>Uploading audio...</Text>}
-    {audioState === 'recording'
-      ? <View><Button title="Stop recording" onPress={() => void stopRecording()} disabled={audioState !== 'recording'} /><Button title="Cancel recording" onPress={() => void cancelRecording()} disabled={audioState !== 'recording'} /></View>
-      : <Button title="Record voice note" onPress={() => void startRecording()} disabled={isBusy || Boolean(pendingRecording) || audioState === 'playing'} />}
-    {pendingRecording && <View>
-      <Text>Preview {formatDuration(pendingRecording.duration)}</Text>
-      <Button title={playingKey === 'preview' && playerStatus.playing ? 'Playing preview' : 'Play preview'} onPress={playPreview} disabled={isBusy || audioState === 'playing'} />
-      <Button title="Stop preview" onPress={() => void stopPlayback()} disabled={playingKey !== 'preview'} />
-      <Button title="Cancel preview" onPress={() => void cancelRecording()} disabled={isBusy} />
-      <Button title="Save voice note" onPress={() => void saveRecording()} disabled={isBusy || audioState !== 'preview'} />
-    </View>}
-    {audioError && <Text>{audioError}</Text>}
-    {audios.length === 0 && <Text>No audio notes.</Text>}
-    {audios.map((audio) => <View key={audio.id}>
-      <Text>{formatDuration(audio.duration)} · {audio.mimeType} · {audio.size} bytes</Text>
-      <Button title={playingKey === audio.id && playerStatus.playing ? 'Playing voice note' : 'Play voice note'} onPress={() => playAudio(audio)} disabled={isBusy || audioState === 'playing'} />
-      <Button title="Stop playback" onPress={() => void stopPlayback()} disabled={playingKey !== audio.id} />
-      <Button title={deletingAttachment === audio.id ? 'Deleting...' : 'Delete audio'} onPress={() => removeAudio(audio.id)} disabled={isBusy} />
-    </View>)}
-  </View>;
+  return <>
+    <Screen>
+      <AppHeader title="Detalle de tarea" onBack={() => router.back()} right={<AppBadge label={task.completed ? 'Completada' : 'Pendiente'} tone={task.completed ? 'success' : 'warning'} />} />
+      <AppText variant="display">{task.title}</AppText>
+      <AppFeedback message={feedback?.message} tone={feedback?.tone} />
+      <Card>
+        <AppText variant="title">Información</AppText>
+        {task.description && <AppText variant="bodySecondary" muted className="mt-sm">{task.description}</AppText>}
+        <AppText variant="caption" muted className="mt-sm">Creada el {new Date(task.createdAt).toLocaleDateString()}</AppText>
+      </Card>
+      <Card>
+        <AppText variant="title">Ubicación</AppText>
+        {storedLocation ? <><AppText variant="bodySecondary" muted className="mt-sm">{storedLocation.latitude}, {storedLocation.longitude}</AppText><AppText variant="caption" muted className="mt-xs">Precisión {Math.round(storedLocation.accuracy)} m · {new Date(storedLocation.timestamp).toLocaleString()}</AppText></> : <AppText variant="bodySecondary" muted className="mt-sm">No hay ubicación asociada.</AppText>}
+      </Card>
+      <Card>
+        <AppText variant="title">Imágenes</AppText>
+        <AppButton title={imageLoading ? 'Subiendo imagen...' : 'Añadir fotografía'} variant="secondary" onPress={() => void addPhoto()} disabled={isBusy} />
+        {photoUri && <AppImage uri={photoUri} className="w-full h-52 rounded-medium mt-sm" />}
+        {images.length === 0 && <StateMessage title="Esta tarea no tiene imágenes." />}
+        {images.map((image) => { const status = imageStatuses[image.id] ?? 'loading'; return <Card key={image.id} className="p-md">
+          {status === 'error' ? <StateMessage title="No se pudo cargar la imagen." tone="error" actionTitle="Reintentar" onAction={() => setImageStatuses((current) => ({ ...current, [image.id]: 'loading' }))} /> : <View className="relative"><AppImage key={`${image.id}-${status}`} uri={attachmentsApi.imageFileUrl(id, image.id)} token={token ?? undefined} className="w-full h-52 rounded-medium" onLoadStart={() => setImageStatuses((current) => ({ ...current, [image.id]: 'loading' }))} onLoad={() => setImageStatuses((current) => ({ ...current, [image.id]: 'ready' }))} onError={() => setImageStatuses((current) => ({ ...current, [image.id]: 'error' }))} />{status === 'loading' && <View className="absolute inset-0 items-center justify-center rounded-medium bg-surface"><AppText variant="bodySecondary" muted>Cargando imagen...</AppText></View>}</View>}
+          <AppText variant="caption" muted className="mt-sm">{image.filename}</AppText><AppButton title="Eliminar imagen" variant="danger" loading={deletingAttachment === image.id} onPress={() => removeImage(image.id)} disabled={isBusy} />
+        </Card>; })}
+      </Card>
+      <Card>
+        <AppText variant="title">Notas de voz</AppText>
+        {audioState === 'recording' && <AppText variant="bodySecondary">Grabando... {formatDuration(recordingSeconds)}</AppText>}
+        {audioState === 'stopping' && <AppText variant="bodySecondary">Deteniendo grabación...</AppText>}
+        {audioState === 'uploading' && <AppText variant="bodySecondary">Guardando audio...</AppText>}
+        {audioState === 'recording' ? <><AppButton title="Detener grabación" onPress={() => void stopRecording()} disabled={audioState !== 'recording'} /><AppButton title="Cancelar grabación" variant="ghost" onPress={() => void cancelRecording()} disabled={audioState !== 'recording'} /></> : <AppButton title="Grabar nota de voz" onPress={() => void startRecording()} disabled={isBusy || Boolean(pendingRecording) || audioState === 'playing'} />}
+        {pendingRecording && <Card><AppText variant="bodySecondary">Vista previa · {formatDuration(pendingRecording.duration)}</AppText><AppButton title={playingKey === 'preview' && playerStatus.playing ? 'Reproduciendo vista previa' : 'Reproducir vista previa'} onPress={playPreview} disabled={isBusy || audioState === 'playing'} /><AppButton title="Detener reproducción" variant="ghost" onPress={() => void stopPlayback()} disabled={playingKey !== 'preview'} /><AppButton title="Cancelar vista previa" variant="ghost" onPress={() => void cancelRecording()} disabled={isBusy} /><AppButton title="Guardar nota de voz" onPress={() => void saveRecording()} disabled={isBusy || audioState !== 'preview'} /></Card>}
+        {audioError && <StateMessage title={audioError} tone="error" />}
+        {audios.length === 0 && <StateMessage title="Esta tarea no tiene notas de voz." />}
+        {audios.map((audio) => <Card key={audio.id}><AppText variant="bodySecondary">{formatDuration(audio.duration)} · {audio.mimeType} · {audio.size} bytes</AppText><AppButton title={playingKey === audio.id && playerStatus.playing ? 'Reproduciendo nota de voz' : 'Reproducir nota de voz'} onPress={() => playAudio(audio)} disabled={isBusy || audioState === 'playing'} /><AppButton title="Detener reproducción" variant="ghost" onPress={() => void stopPlayback()} disabled={playingKey !== audio.id} /><AppButton title="Eliminar audio" variant="danger" loading={deletingAttachment === audio.id} onPress={() => removeAudio(audio.id)} disabled={isBusy} /></Card>)}
+      </Card>
+    </Screen>
+    <AppConfirmModal visible={Boolean(confirmAttachment)} title={confirmAttachment?.type === 'audio' ? '¿Eliminar nota de voz?' : '¿Eliminar imagen?'} description="Esta acción no se puede deshacer." confirmLabel="Eliminar" loading={Boolean(deletingAttachment)} onCancel={() => setConfirmAttachment(undefined)} onConfirm={() => { if (!confirmAttachment) return; void (confirmAttachment.type === 'audio' ? confirmRemoveAudio(confirmAttachment.id) : confirmRemoveImage(confirmAttachment.id)); }} />
+  </>;
 }

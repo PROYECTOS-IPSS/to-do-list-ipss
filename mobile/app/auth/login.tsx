@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Button, Text, TextInput, View } from 'react-native';
 import { Link, Redirect } from 'expo-router';
 import { useAuth } from '../../src/auth/AuthProvider';
+import { AppButton, AppInput, AppLogo, AppText, AuthScreen, Card } from '../../src/ui/components';
 
 export default function Login() {
   const { user, login } = useAuth();
@@ -17,5 +17,5 @@ export default function Login() {
     catch { setError('No se pudo iniciar sesión. Comprueba tus datos e inténtalo nuevamente.'); }
     finally { setLoading(false); }
   };
-  return <View><Text>Login</Text><TextInput value={email} onChangeText={setEmail} placeholder="Email" autoCapitalize="none" editable={!loading} /><TextInput value={password} onChangeText={setPassword} placeholder="Password" secureTextEntry editable={!loading} /><Button title={loading ? 'Logging in...' : 'Login'} onPress={() => void submit()} disabled={loading || !email.trim() || !password} />{error && <Text>{error}</Text>}<Link href="/auth/register">Create account</Link></View>;
+  return <AuthScreen><Card><AppLogo /><AppText variant="heading" className="mt-xl">Bienvenido de nuevo</AppText><AppText variant="bodySecondary" muted className="mt-sm">Organiza tus tareas con claridad.</AppText><AppInput label="Correo electrónico" value={email} onChangeText={setEmail} placeholder="tu@email.com" autoCapitalize="none" keyboardType="email-address" returnKeyType="next" editable={!loading} /><AppInput label="Contraseña" value={password} onChangeText={setPassword} placeholder="Tu contraseña" secureTextEntry returnKeyType="go" onSubmitEditing={() => void submit()} editable={!loading} error={error} /><AppButton title="Iniciar sesión" loading={loading} onPress={() => void submit()} disabled={!email.trim() || !password} /><Link href="/auth/register"><AppText variant="bodySecondary" className="text-center mt-md">Crear cuenta</AppText></Link></Card></AuthScreen>;
 }
