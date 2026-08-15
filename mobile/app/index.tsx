@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, FlatList, Image, Pressable, Text, TextInput, View } from 'react-native';
+import { FlatList, Image, View } from 'react-native';
 import { Redirect, useRouter } from 'expo-router';
 import { useAuth } from '../src/auth/AuthProvider';
 import { attachmentsApi } from '../src/services/attachments';
@@ -7,6 +7,7 @@ import { getCurrentLocation, takePhoto } from '../src/services/peripherals';
 import { preferences, type TaskFilter } from '../src/services/preferences';
 import { tasksApi, type Task, type TaskLocationClearInput, type TaskLocationInput } from '../src/services/tasks';
 import type { TaskLocation } from '../src/services/location-validation';
+import { AppBadge, AppButton, AppConfirmModal, AppFeedback, AppInput, AppLogo, AppText, Card, Screen, StateMessage, TaskCard } from '../src/ui/components';
 
 const locationInput = (location: TaskLocation): TaskLocationInput => ({
   latitude: location.latitude,
@@ -47,6 +48,9 @@ export default function Index() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [filter, setFilter] = useState<TaskFilter>('all');
   const [filterReady, setFilterReady] = useState(false);
+  const [confirmTaskId, setConfirmTaskId] = useState<string>();
+  const [feedback, setFeedback] = useState<{ message: string; tone: 'success' | 'error' | 'info' }>();
+  const [taskImageUrls, setTaskImageUrls] = useState<Record<string, string>>({});
 
   const loadTasks = useCallback(async () => {
     if (!token) return;
@@ -62,6 +66,22 @@ export default function Index() {
   }, [token]);
 
   useEffect(() => { void loadTasks(); }, [loadTasks]);
+  useEffect(() => {
+    if (!token || tasks.length === 0) { setTaskImageUrls({}); return; }
+    let active = true;
+    // ponytail: one attachment metadata request per task; replace with list preview metadata if scale requires it.
+    void Promise.all(tasks.map(async (task) => {
+      try {
+        const images = await attachmentsApi.images(token, task.id) as Array<{ id: string }>;
+        return [task.id, images[0] ? attachmentsApi.imageFileUrl(task.id, images[0].id) : ''] as const;
+      } catch {
+        return [task.id, ''] as const;
+      }
+    })).then((entries) => {
+      if (active) setTaskImageUrls(Object.fromEntries(entries.filter(([, url]) => url)));
+    });
+    return () => { active = false; };
+  }, [tasks, token]);
 
   useEffect(() => {
     let active = true;
@@ -76,8 +96,9 @@ export default function Index() {
   }, [filter, filterReady]);
 
   const visibleTasks = useMemo(() => tasks.filter((task) => filter === 'all' || (filter === 'completed' ? task.completed : !task.completed)), [filter, tasks]);
+  const taskSummary = useMemo(() => ({ total: tasks.length, active: tasks.filter((task) => !task.completed).length, completed: tasks.filter((task) => task.completed).length }), [tasks]);
 
-  if (authLoading) return <Text>Loading session...</Text>;
+  if (authLoading) return <Screen><StateMessage title="Cargando sesión..." /></Screen>;
   if (!user || !token) return <Redirect href="/auth/login" />;
 
   const attachLocation = async () => {
@@ -91,7 +112,7 @@ export default function Index() {
       }
       setLocation(nextLocation);
     } catch {
-      Alert.alert('Ubicación no disponible', 'No se pudo obtener la ubicación. Comprueba el GPS y vuelve a intentarlo.');
+      setFeedback({ message: 'No se pudo obtener la ubicación. Revisa el GPS e inténtalo de nuevo.', tone: 'error' });
     } finally {
       setLocationLoading(false);
     }
@@ -105,10 +126,9 @@ export default function Index() {
       const updated = await tasksApi.update(token, editingId, clearLocation());
       setTasks((current) => current.map((item) => item.id === updated.id ? updated : item));
       setLocation(undefined);
-      Alert.alert('Ubicación actualizada', 'Ubicación eliminada de la tarea.');
+      setFeedback({ message: 'Ubicación eliminada.', tone: 'success' });
     } catch {
-      Alert.alert('Error de ubicación', 'No se pudo eliminar la ubicación. Inténtalo nuevamente.');
-    } finally {
+      setFeedback({ message: 'No se pudo eliminar la ubicación. Inténtalo de nuevo.', tone: 'error' });
       setLocationLoading(false);
     }
   };
@@ -120,8 +140,7 @@ export default function Index() {
       const photo = await takePhoto();
       if (photo) { setPhotoUri(photo.uri); setPhotoPending(true); }
     } catch {
-      Alert.alert('Cámara no disponible', 'No se pudo capturar la fotografía. Inténtalo nuevamente.');
-    } finally {
+      setFeedback({ message: 'No se pudo capturar la foto. Inténtalo de nuevo.', tone: 'error' });
       setPhotoLoading(false);
     }
   };
@@ -138,11 +157,11 @@ export default function Index() {
       setTitle(''); setDescription(''); setEditingId(undefined); setLocation(undefined); setPhotoUri(undefined); setPhotoPending(false);
       if (photoPending && photoUri) {
         try { await attachmentsApi.uploadImage(token, task.id, photoUri); }
-        catch { Alert.alert('Tarea guardada', 'La tarea se guardó, pero no se pudo subir la imagen. Puedes intentarlo desde el detalle.'); return; }
+        catch { setFeedback({ message: 'La tarea se guardó, pero no se pudo subir la imagen.', tone: 'error' }); return; }
       }
-      Alert.alert(wasEditing ? 'Tarea actualizada' : 'Tarea creada', 'Cambios guardados correctamente.');
+      setFeedback({ message: wasEditing ? 'Tarea actualizada.' : 'Tarea creada.', tone: 'success' });
     } catch {
-      setError('No se pudo guardar la tarea. Inténtalo nuevamente.');
+      setFeedback({ message: 'No se pudo guardar la tarea. Inténtalo de nuevo.', tone: 'error' });
     } finally {
       setSaving(false);
     }
@@ -155,7 +174,7 @@ export default function Index() {
       const updated = await tasksApi.update(token, task.id, { completed: !task.completed });
       setTasks((current) => current.map((item) => item.id === updated.id ? updated : item));
     } catch {
-      Alert.alert('Error', 'No se pudo actualizar la tarea. Inténtalo nuevamente.');
+      setFeedback({ message: 'No se pudo actualizar la tarea. Inténtalo de nuevo.', tone: 'error' });
     } finally {
       setUpdatingId(undefined);
     }
@@ -163,25 +182,21 @@ export default function Index() {
 
   const removeTask = (id: string) => {
     if (deletingId || saving || updatingId) return;
-    Alert.alert('¿Eliminar tarea?', 'Esta acción no se puede deshacer.', [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Eliminar', style: 'destructive', onPress: () => { void confirmRemoveTask(id); } }
-    ]);
+    setConfirmTaskId(id);
   };
-
   const confirmRemoveTask = async (id: string) => {
     setDeletingId(id);
     try {
       await tasksApi.remove(token, id);
       setTasks((current) => current.filter((task) => task.id !== id));
-      Alert.alert('Tarea eliminada', 'La tarea se eliminó correctamente.');
+      setFeedback({ message: 'Tarea eliminada.', tone: 'success' });
     } catch {
-      Alert.alert('Error', 'No se pudo eliminar la tarea. Inténtalo nuevamente.');
+      setFeedback({ message: 'No se pudo eliminar la tarea. Inténtalo de nuevo.', tone: 'error' });
     } finally {
       setDeletingId(undefined);
+      setConfirmTaskId(undefined);
     }
   };
-
   const editTask = (task: Task) => {
     if (saving || deletingId) return;
     setEditingId(task.id); setTitle(task.title); setDescription(task.description ?? ''); setLocation(taskLocation(task));
@@ -191,31 +206,63 @@ export default function Index() {
     if (loggingOut) return;
     setLoggingOut(true);
     try { await logout(); }
-    catch { Alert.alert('Error', 'No se pudo cerrar la sesión. Inténtalo nuevamente.'); setLoggingOut(false); }
+    catch { setFeedback({ message: 'No se pudo cerrar la sesión. Inténtalo de nuevo.', tone: 'error' }); setLoggingOut(false); }
   };
 
-  return <View>
-    <Text>Task Manager</Text>
-    <Button title={loggingOut ? 'Logging out...' : 'Logout'} onPress={() => void handleLogout()} disabled={loggingOut} />
-    <TextInput value={title} onChangeText={setTitle} placeholder="Task title" editable={!saving} />
-    <TextInput value={description} onChangeText={setDescription} placeholder="Description" editable={!saving} />
-    <Button title={locationLoading ? 'Getting location...' : 'Associate current location'} onPress={() => void attachLocation()} disabled={locationLoading || saving} />
-    {location && <View><Text>Location associated: {location.latitude}, {location.longitude}</Text><Text>Approximate accuracy: {Math.round(location.accuracy)} m</Text><Text>Obtained: {new Date(location.timestamp).toLocaleString()}</Text><Button title="Remove location" onPress={() => void removeLocation()} disabled={locationLoading || saving} /></View>}
-    <Button title={photoLoading ? 'Opening camera...' : 'Add photograph'} onPress={() => void attachPhoto()} disabled={photoLoading || saving} />
-    {photoUri && <View><Image source={{ uri: photoUri }} style={{ width: 200, height: 200 }} /><Button title="Remove photo preview" onPress={() => { setPhotoUri(undefined); setPhotoPending(false); }} disabled={saving} /></View>}
-    <Button title={saving ? 'Saving...' : editingId ? 'Save changes' : 'Add task'} onPress={() => void saveTask()} disabled={saving || !title.trim()} />
-    <View><Text>Filter</Text><Button title={filter === 'all' ? 'All (selected)' : 'All'} onPress={() => setFilter('all')} /><Button title={filter === 'active' ? 'Active (selected)' : 'Active'} onPress={() => setFilter('active')} /><Button title={filter === 'completed' ? 'Completed (selected)' : 'Completed'} onPress={() => setFilter('completed')} /></View>
-    {loading && <Text>Loading...</Text>}
-    {error && <View><Text>{error}</Text><Button title="Retry" onPress={() => void loadTasks()} disabled={loading} /></View>}
-    {!loading && !error && tasks.length === 0 && <Text>No tasks yet.</Text>}
-    {!loading && !error && tasks.length > 0 && visibleTasks.length === 0 && <Text>No tasks match this filter.</Text>}
-    <FlatList data={visibleTasks} keyExtractor={(task) => task.id} renderItem={({ item }) => <View>
-      <Pressable onPress={() => router.push(`/tasks/${item.id}` as never)}><Text>{item.completed ? '✓ ' : ''}{item.title}</Text></Pressable>
-      {item.description && <Text>{item.description}</Text>}
-      {item.latitude !== null && item.longitude !== null && item.locationAccuracy !== null && item.locationTimestamp !== null && <Text>Location associated · accuracy {Math.round(item.locationAccuracy)} m · {new Date(item.locationTimestamp).toLocaleString()}</Text>}
-      <Button title={updatingId === item.id ? 'Updating...' : item.completed ? 'Mark incomplete' : 'Complete'} onPress={() => void toggleTask(item)} disabled={Boolean(updatingId || deletingId || saving)} />
-      <Button title="Edit" onPress={() => editTask(item)} disabled={Boolean(updatingId || deletingId || saving)} />
-      <Button title={deletingId === item.id ? 'Deleting...' : 'Delete'} onPress={() => removeTask(item.id)} disabled={Boolean(updatingId || deletingId || saving)} />
-    </View>} />
-  </View>;
+  return <Screen>
+    <FlatList
+      className="flex-1"
+      contentContainerClassName="pb-xxl"
+      ListHeaderComponent={<View>
+        <View className="flex-row items-start justify-between mb-lg"><View className="flex-row items-center gap-md flex-1"><AppLogo compact /><View className="flex-1"><AppText variant="caption" muted>Hola{user.name ? `, ${user.name}` : ''}</AppText><AppText variant="display">Task desk</AppText><AppText variant="bodySecondary" muted>Organiza tu día con calma.</AppText></View></View><AppButton title="Cerrar sesión" variant="ghost" loading={loggingOut} onPress={() => void handleLogout()} accessibilityLabel="Cerrar sesión" /></View>
+        <View className="flex-row items-center justify-between mb-md"><AppBadge label="Tu espacio" tone="accent" /><AppFeedback message={feedback?.message} tone={feedback?.tone} /></View>
+        <View className="flex-row gap-sm mb-lg">
+          <Card className="flex-1 p-md"><AppText variant="heading">{taskSummary.total}</AppText><AppText variant="caption" muted>Total</AppText></Card>
+          <Card className="flex-1 p-md"><AppText variant="heading" className="text-warning">{taskSummary.active}</AppText><AppText variant="caption" muted>Pendientes</AppText></Card>
+          <Card className="flex-1 p-md"><AppText variant="heading" className="text-success">{taskSummary.completed}</AppText><AppText variant="caption" muted>Completadas</AppText></Card>
+        </View>
+        <Card>
+          <AppText variant="heading">{editingId ? 'Editar tarea' : 'Crear una tarea'}</AppText>
+          <AppText variant="bodySecondary" muted className="mb-md">Anota lo siguiente que quieres sacar adelante.</AppText>
+          <AppInput label="Título" value={title} onChangeText={setTitle} placeholder="¿Qué necesitas hacer?" editable={!saving} />
+          <AppInput label="Descripción" value={description} onChangeText={setDescription} placeholder="Añade contexto útil" editable={!saving} multiline />
+          <AppButton title={locationLoading ? 'Obteniendo ubicación...' : 'Asociar ubicación actual'} variant="secondary" onPress={() => void attachLocation()} disabled={locationLoading || saving} />
+          {location && <Card className="p-md"><AppText variant="label">Ubicación asociada</AppText><AppText variant="bodySecondary" muted>{location.latitude}, {location.longitude}</AppText><AppText variant="caption" muted>Precisión {Math.round(location.accuracy)} m · {new Date(location.timestamp).toLocaleString()}</AppText><AppButton title="Quitar ubicación" variant="ghost" onPress={() => void removeLocation()} disabled={locationLoading || saving} /></Card>}
+          <AppButton title={photoLoading ? 'Abriendo cámara...' : 'Añadir fotografía'} variant="secondary" onPress={() => void attachPhoto()} disabled={photoLoading || saving} />
+          {photoUri && <Card className="p-md"><Image source={{ uri: photoUri }} className="w-full h-[180px] rounded-medium" /><AppButton title="Quitar vista previa" variant="ghost" onPress={() => { setPhotoUri(undefined); setPhotoPending(false); }} disabled={saving} /></Card>}
+          <AppButton title={editingId ? 'Guardar cambios' : 'Añadir tarea'} loading={saving} onPress={() => void saveTask()} disabled={!title.trim()} accessibilityLabel={editingId ? 'Guardar cambios de la tarea' : 'Crear tarea'} />
+        </Card>
+        <View className="flex-row items-center justify-between mb-sm"><AppText variant="title">Tus tareas</AppText><AppText variant="caption" muted>{visibleTasks.length} visibles</AppText></View>
+        <View className="flex-row gap-xs mb-md">
+          <AppButton title={filter === 'all' ? 'Todas ✓' : 'Todas'} variant={filter === 'all' ? 'secondary' : 'ghost'} onPress={() => setFilter('all')} accessibilityLabel="Mostrar todas las tareas" className="flex-1" />
+          <AppButton title={filter === 'active' ? 'Pendientes ✓' : 'Pendientes'} variant={filter === 'active' ? 'secondary' : 'ghost'} onPress={() => setFilter('active')} accessibilityLabel="Mostrar tareas pendientes" className="flex-1" />
+          <AppButton title={filter === 'completed' ? 'Completadas ✓' : 'Completadas'} variant={filter === 'completed' ? 'secondary' : 'ghost'} onPress={() => setFilter('completed')} accessibilityLabel="Mostrar tareas completadas" className="flex-1" />
+        </View>
+        {loading && <StateMessage title="Cargando tareas..." />}
+        {error && <StateMessage title={error} tone="error" actionTitle="Reintentar" onAction={() => void loadTasks()} />}
+        {!loading && !error && tasks.length === 0 && <StateMessage title="Todavía no tienes tareas. Añade la primera arriba." />}
+        {!loading && !error && tasks.length > 0 && visibleTasks.length === 0 && <StateMessage title="Ninguna tarea coincide con este filtro." />}
+      </View>}
+      data={visibleTasks}
+      keyExtractor={(task) => task.id}
+      renderItem={({ item }) => <TaskCard
+        title={item.title}
+        description={item.description}
+        dateLabel={new Date(item.createdAt).toLocaleDateString()}
+        imageUrl={taskImageUrls[item.id]}
+        imageToken={token ?? undefined}
+        completed={item.completed}
+        locationLabel={item.latitude !== null && item.longitude !== null && item.locationAccuracy !== null && item.locationTimestamp !== null ? `Ubicación · precisión ${Math.round(item.locationAccuracy)} m` : undefined}
+        onOpen={() => router.push(`/tasks/${item.id}` as never)}
+        onToggle={() => void toggleTask(item)}
+        onEdit={() => editTask(item)}
+        onDelete={() => removeTask(item.id)}
+        toggleLoading={updatingId === item.id}
+        deleteLoading={deletingId === item.id}
+        disabled={Boolean(updatingId || deletingId || saving)}
+      />}
+      ListFooterComponent={<View className="h-xxl" />}
+    />
+    <AppConfirmModal visible={Boolean(confirmTaskId)} title="¿Eliminar tarea?" description="Esta acción no se puede deshacer." confirmLabel="Eliminar" loading={Boolean(deletingId)} onCancel={() => setConfirmTaskId(undefined)} onConfirm={() => { if (confirmTaskId) void confirmRemoveTask(confirmTaskId); }} />
+  </Screen>;
 }

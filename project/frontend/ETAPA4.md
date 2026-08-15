@@ -130,3 +130,57 @@ Evitar:
 - [ ] Error.
 - [ ] Feedback.
 - [ ] Sin requests duplicadas.
+
+# Styling
+
+Todo el listado y detalle de tareas debe utilizar NativeWind/TailwindCSS.
+
+Normalizar:
+
+- TaskCard;
+- TaskItem;
+- filtros;
+- botones;
+- inputs;
+- estados;
+- badges;
+- acciones;
+- modales.
+
+No duplicar estilos entre TaskList y TaskDetail.
+
+Las variantes visuales deben resolverse mediante componentes/props y clases NativeWind.
+
+# REGLA DE ESTILOS — OBLIGATORIA
+
+El proyecto utiliza TailwindCSS mediante NativeWind.
+
+NativeWind/TailwindCSS es el sistema de estilos PRINCIPAL y PREFERIDO.
+
+Para cualquier nuevo trabajo de UI:
+
+1. Intentar resolver el estilo mediante clases NativeWind.
+2. Reutilizar componentes existentes.
+3. Reutilizar tokens definidos en Tailwind.
+4. Crear nuevos tokens solamente cuando exista una necesidad real.
+5. Evitar valores arbitrarios.
+6. Evitar estilos inline.
+7. Evitar StyleSheet cuando NativeWind pueda resolver el problema.
+
+StyleSheet solamente puede utilizarse cuando:
+
+- NativeWind no soporte adecuadamente la propiedad;
+- React Native requiera un objeto de estilo;
+- exista una limitación técnica comprobable.
+
+Toda utilización excepcional de StyleSheet debe estar justificada.
+
+NO introducir:
+
+- otra librería de UI;
+- otro sistema de tokens;
+- CSS paralelo;
+- estilos duplicados;
+- componentes visuales con sistemas de estilos independientes.
+
+El objetivo es que toda la aplicación evolucione hacia un único lenguaje visual basado en TailwindCSS/NativeWind.

@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Button, Text, TextInput, View } from 'react-native';
 import { Link, Redirect } from 'expo-router';
 import { useAuth } from '../../src/auth/AuthProvider';
+import { AppButton, AppInput, AppLogo, AppText, AuthScreen, Card } from '../../src/ui/components';
 
 export default function Register() {
   const { user, register } = useAuth();
@@ -18,5 +18,5 @@ export default function Register() {
     catch { setError('No se pudo crear la cuenta. Comprueba los datos e inténtalo nuevamente.'); }
     finally { setLoading(false); }
   };
-  return <View><Text>Register</Text><TextInput value={name} onChangeText={setName} placeholder="Name" editable={!loading} /><TextInput value={email} onChangeText={setEmail} placeholder="Email" autoCapitalize="none" editable={!loading} /><TextInput value={password} onChangeText={setPassword} placeholder="Password" secureTextEntry editable={!loading} /><Button title={loading ? 'Registering...' : 'Register'} onPress={() => void submit()} disabled={loading || !name.trim() || !email.trim() || !password} />{error && <Text>{error}</Text>}<Link href="/auth/login">Back to login</Link></View>;
+  return <AuthScreen><Card><AppLogo /><AppText variant="heading" className="mt-xl">Crear cuenta</AppText><AppText variant="bodySecondary" muted className="mt-sm">Empieza a ordenar tu día.</AppText><AppInput label="Nombre" value={name} onChangeText={setName} placeholder="Tu nombre" returnKeyType="next" editable={!loading} /><AppInput label="Correo electrónico" value={email} onChangeText={setEmail} placeholder="tu@email.com" autoCapitalize="none" keyboardType="email-address" returnKeyType="next" editable={!loading} /><AppInput label="Contraseña" value={password} onChangeText={setPassword} placeholder="Mínimo 8 caracteres" secureTextEntry returnKeyType="go" onSubmitEditing={() => void submit()} editable={!loading} error={error} /><AppButton title="Crear cuenta" loading={loading} onPress={() => void submit()} disabled={!name.trim() || !email.trim() || !password} /><Link href="/auth/login"><AppText variant="bodySecondary" className="text-center mt-md">Volver a iniciar sesión</AppText></Link></Card></AuthScreen>;
 }
