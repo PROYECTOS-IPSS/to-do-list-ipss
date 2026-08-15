@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { File } from 'expo-file-system';
 import { useAudioPlayer, useAudioPlayerStatus, type AudioSource } from 'expo-audio';
@@ -291,39 +291,41 @@ export default function TaskDetail() {
 
   return <>
     <Screen>
-      <AppHeader title="Detalle de tarea" onBack={() => router.back()} right={<AppBadge label={task.completed ? 'Completada' : 'Pendiente'} tone={task.completed ? 'success' : 'warning'} />} />
-      <AppText variant="display">{task.title}</AppText>
-      <AppFeedback message={feedback?.message} tone={feedback?.tone} />
-      <Card>
-        <AppText variant="title">Información</AppText>
-        {task.description && <AppText variant="bodySecondary" muted className="mt-sm">{task.description}</AppText>}
-        <AppText variant="caption" muted className="mt-sm">Creada el {new Date(task.createdAt).toLocaleDateString()}</AppText>
-      </Card>
-      <Card>
-        <AppText variant="title">Ubicación</AppText>
-        {storedLocation ? <><AppText variant="bodySecondary" muted className="mt-sm">{storedLocation.latitude}, {storedLocation.longitude}</AppText><AppText variant="caption" muted className="mt-xs">Precisión {Math.round(storedLocation.accuracy)} m · {new Date(storedLocation.timestamp).toLocaleString()}</AppText></> : <AppText variant="bodySecondary" muted className="mt-sm">No hay ubicación asociada.</AppText>}
-      </Card>
-      <Card>
-        <AppText variant="title">Imágenes</AppText>
-        <AppButton title={imageLoading ? 'Subiendo imagen...' : 'Añadir fotografía'} variant="secondary" onPress={() => void addPhoto()} disabled={isBusy} />
-        {photoUri && <AppImage uri={photoUri} className="w-full h-52 rounded-medium mt-sm" />}
-        {images.length === 0 && <StateMessage title="Esta tarea no tiene imágenes." />}
-        {images.map((image) => { const status = imageStatuses[image.id] ?? 'loading'; return <Card key={image.id} className="p-md">
-          {status === 'error' ? <StateMessage title="No se pudo cargar la imagen." tone="error" actionTitle="Reintentar" onAction={() => setImageStatuses((current) => ({ ...current, [image.id]: 'loading' }))} /> : <View className="relative"><AppImage key={`${image.id}-${status}`} uri={attachmentsApi.imageFileUrl(id, image.id)} token={token ?? undefined} className="w-full h-52 rounded-medium" onLoadStart={() => setImageStatuses((current) => ({ ...current, [image.id]: 'loading' }))} onLoad={() => setImageStatuses((current) => ({ ...current, [image.id]: 'ready' }))} onError={() => setImageStatuses((current) => ({ ...current, [image.id]: 'error' }))} />{status === 'loading' && <View className="absolute inset-0 items-center justify-center rounded-medium bg-surface"><AppText variant="bodySecondary" muted>Cargando imagen...</AppText></View>}</View>}
-          <AppText variant="caption" muted className="mt-sm">{image.filename}</AppText><AppButton title="Eliminar imagen" variant="danger" loading={deletingAttachment === image.id} onPress={() => removeImage(image.id)} disabled={isBusy} />
-        </Card>; })}
-      </Card>
-      <Card>
-        <AppText variant="title">Notas de voz</AppText>
-        {audioState === 'recording' && <AppText variant="bodySecondary">Grabando... {formatDuration(recordingSeconds)}</AppText>}
-        {audioState === 'stopping' && <AppText variant="bodySecondary">Deteniendo grabación...</AppText>}
-        {audioState === 'uploading' && <AppText variant="bodySecondary">Guardando audio...</AppText>}
-        {audioState === 'recording' ? <><AppButton title="Detener grabación" onPress={() => void stopRecording()} disabled={audioState !== 'recording'} /><AppButton title="Cancelar grabación" variant="ghost" onPress={() => void cancelRecording()} disabled={audioState !== 'recording'} /></> : <AppButton title="Grabar nota de voz" onPress={() => void startRecording()} disabled={isBusy || Boolean(pendingRecording) || audioState === 'playing'} />}
-        {pendingRecording && <Card><AppText variant="bodySecondary">Vista previa · {formatDuration(pendingRecording.duration)}</AppText><AppButton title={playingKey === 'preview' && playerStatus.playing ? 'Reproduciendo vista previa' : 'Reproducir vista previa'} onPress={playPreview} disabled={isBusy || audioState === 'playing'} /><AppButton title="Detener reproducción" variant="ghost" onPress={() => void stopPlayback()} disabled={playingKey !== 'preview'} /><AppButton title="Cancelar vista previa" variant="ghost" onPress={() => void cancelRecording()} disabled={isBusy} /><AppButton title="Guardar nota de voz" onPress={() => void saveRecording()} disabled={isBusy || audioState !== 'preview'} /></Card>}
-        {audioError && <StateMessage title={audioError} tone="error" />}
-        {audios.length === 0 && <StateMessage title="Esta tarea no tiene notas de voz." />}
-        {audios.map((audio) => <Card key={audio.id}><AppText variant="bodySecondary">{formatDuration(audio.duration)} · {audio.mimeType} · {audio.size} bytes</AppText><AppButton title={playingKey === audio.id && playerStatus.playing ? 'Reproduciendo nota de voz' : 'Reproducir nota de voz'} onPress={() => playAudio(audio)} disabled={isBusy || audioState === 'playing'} /><AppButton title="Detener reproducción" variant="ghost" onPress={() => void stopPlayback()} disabled={playingKey !== audio.id} /><AppButton title="Eliminar audio" variant="danger" loading={deletingAttachment === audio.id} onPress={() => removeAudio(audio.id)} disabled={isBusy} /></Card>)}
-      </Card>
+      <ScrollView className="flex-1" contentContainerClassName="pb-xxl">
+        <AppHeader title="Detalle de tarea" onBack={() => router.back()} right={<AppBadge label={task.completed ? 'Completada' : 'Pendiente'} tone={task.completed ? 'success' : 'warning'} />} />
+        <AppText variant="display">{task.title}</AppText>
+        <AppFeedback message={feedback?.message} tone={feedback?.tone} />
+        <Card>
+          <AppText variant="title">Información</AppText>
+          {task.description && <AppText variant="bodySecondary" muted className="mt-sm">{task.description}</AppText>}
+          <AppText variant="caption" muted className="mt-sm">Creada el {new Date(task.createdAt).toLocaleDateString()}</AppText>
+        </Card>
+        <Card>
+          <AppText variant="title">Ubicación</AppText>
+          {storedLocation ? <><AppText variant="bodySecondary" muted className="mt-sm">{storedLocation.latitude}, {storedLocation.longitude}</AppText><AppText variant="caption" muted className="mt-xs">Precisión {Math.round(storedLocation.accuracy)} m · {new Date(storedLocation.timestamp).toLocaleString()}</AppText></> : <AppText variant="bodySecondary" muted className="mt-sm">No hay ubicación asociada.</AppText>}
+        </Card>
+        <Card>
+          <AppText variant="title">Imágenes</AppText>
+          <AppButton title={imageLoading ? 'Subiendo imagen...' : 'Añadir fotografía'} variant="secondary" onPress={() => void addPhoto()} disabled={isBusy} />
+          {photoUri && <AppImage uri={photoUri} className="w-full h-52 rounded-medium mt-sm" />}
+          {images.length === 0 && <StateMessage title="Esta tarea no tiene imágenes." />}
+          {images.map((image) => { const status = imageStatuses[image.id] ?? 'loading'; return <Card key={image.id} className="p-md">
+            {status === 'error' ? <StateMessage title="No se pudo cargar la imagen." tone="error" actionTitle="Reintentar" onAction={() => setImageStatuses((current) => ({ ...current, [image.id]: 'loading' }))} /> : <View className="relative"><AppImage key={`${image.id}-${status}`} uri={attachmentsApi.imageFileUrl(id, image.id)} token={token ?? undefined} className="w-full h-52 rounded-medium" onLoadStart={() => setImageStatuses((current) => ({ ...current, [image.id]: 'loading' }))} onLoad={() => setImageStatuses((current) => ({ ...current, [image.id]: 'ready' }))} onError={() => setImageStatuses((current) => ({ ...current, [image.id]: 'error' }))} />{status === 'loading' && <View className="absolute inset-0 items-center justify-center rounded-medium bg-surface"><AppText variant="bodySecondary" muted>Cargando imagen...</AppText></View>}</View>}
+            <AppText variant="caption" muted className="mt-sm">{image.filename}</AppText><AppButton title="Eliminar imagen" variant="danger" loading={deletingAttachment === image.id} onPress={() => removeImage(image.id)} disabled={isBusy} />
+          </Card>; })}
+        </Card>
+        <Card>
+          <AppText variant="title">Notas de voz</AppText>
+          {audioState === 'recording' && <AppText variant="bodySecondary">Grabando... {formatDuration(recordingSeconds)}</AppText>}
+          {audioState === 'stopping' && <AppText variant="bodySecondary">Deteniendo grabación...</AppText>}
+          {audioState === 'uploading' && <AppText variant="bodySecondary">Guardando audio...</AppText>}
+          {audioState === 'recording' ? <><AppButton title="Detener grabación" onPress={() => void stopRecording()} disabled={audioState !== 'recording'} /><AppButton title="Cancelar grabación" variant="ghost" onPress={() => void cancelRecording()} disabled={audioState !== 'recording'} /></> : <AppButton title="Grabar nota de voz" onPress={() => void startRecording()} disabled={isBusy || Boolean(pendingRecording) || audioState === 'playing'} />}
+          {pendingRecording && <Card><AppText variant="bodySecondary">Vista previa · {formatDuration(pendingRecording.duration)}</AppText><AppButton title={playingKey === 'preview' && playerStatus.playing ? 'Reproduciendo vista previa' : 'Reproducir vista previa'} onPress={playPreview} disabled={isBusy || audioState === 'playing'} /><AppButton title="Detener reproducción" variant="ghost" onPress={() => void stopPlayback()} disabled={playingKey !== 'preview'} /><AppButton title="Cancelar vista previa" variant="ghost" onPress={() => void cancelRecording()} disabled={isBusy} /><AppButton title="Guardar nota de voz" onPress={() => void saveRecording()} disabled={isBusy || audioState !== 'preview'} /></Card>}
+          {audioError && <StateMessage title={audioError} tone="error" />}
+          {audios.length === 0 && <StateMessage title="Esta tarea no tiene notas de voz." />}
+          {audios.map((audio) => <Card key={audio.id}><AppText variant="bodySecondary">{formatDuration(audio.duration)} · {audio.mimeType} · {audio.size} bytes</AppText><AppButton title={playingKey === audio.id && playerStatus.playing ? 'Reproduciendo nota de voz' : 'Reproducir nota de voz'} onPress={() => playAudio(audio)} disabled={isBusy || audioState === 'playing'} /><AppButton title="Detener reproducción" variant="ghost" onPress={() => void stopPlayback()} disabled={playingKey !== audio.id} /><AppButton title="Eliminar audio" variant="danger" loading={deletingAttachment === audio.id} onPress={() => removeAudio(audio.id)} disabled={isBusy} /></Card>)}
+        </Card>
+      </ScrollView>
     </Screen>
     <AppConfirmModal visible={Boolean(confirmAttachment)} title={confirmAttachment?.type === 'audio' ? '¿Eliminar nota de voz?' : '¿Eliminar imagen?'} description="Esta acción no se puede deshacer." confirmLabel="Eliminar" loading={Boolean(deletingAttachment)} onCancel={() => setConfirmAttachment(undefined)} onConfirm={() => { if (!confirmAttachment) return; void (confirmAttachment.type === 'audio' ? confirmRemoveAudio(confirmAttachment.id) : confirmRemoveImage(confirmAttachment.id)); }} />
   </>;

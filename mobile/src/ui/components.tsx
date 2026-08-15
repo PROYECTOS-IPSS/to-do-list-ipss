@@ -164,6 +164,7 @@ export function TaskCard({ title, description, dateLabel, imageUrl, imageToken, 
     {imageUrl && <AppImage uri={imageUrl} token={imageToken} className="w-full h-40 rounded-medium mt-sm" />}
     {description && <AppText variant="bodySecondary" muted className="mt-xs">{description}</AppText>}
     {(dateLabel || locationLabel) && <AppText variant="caption" muted className="mt-xs">{[dateLabel, locationLabel].filter(Boolean).join(' · ')}</AppText>}
+    <AppButton title="Ver detalles" variant="secondary" onPress={onOpen} accessibilityLabel={`Ver detalles de ${title}`} className="mt-md" />
     <View className="flex-row gap-xs mt-md"><AppButton title={completed ? 'Reabrir' : 'Completar'} loading={toggleLoading} onPress={onToggle} disabled={disabled} className="flex-1" /><AppButton title="Editar" variant="ghost" onPress={onEdit} disabled={disabled} className="flex-1" /><AppButton title="Eliminar" variant="danger" loading={deleteLoading} onPress={onDelete} disabled={disabled} className="flex-1" /></View>
   </Card>;
 }
