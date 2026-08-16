@@ -102,11 +102,18 @@ Versiones declaradas en `mobile/package.json`:
 - `react-native-reanimated` `^3.19.4`.
 - `react-native-safe-area-context` `~5.6.0`.
 - `@react-native-async-storage/async-storage` `^2.2.0`.
+- `react-native-screens` `~4.16.0`.
 - `expo-secure-store` `~15.0.8`.
 - `expo-image-picker` `~17.0.11`.
+- `expo-camera` `~17.0.10`.
 - `expo-location` `~19.0.8`.
 - `expo-audio` `~1.1.1`.
 - `expo-file-system` `~19.0.23`.
+- `expo-asset` `~12.0.13`.
+- `expo-dev-client` `~6.0.0`.
+- `expo-status-bar` `~3.0.0`.
+- Zod `^4.4.3`.
+- Jest `^30.4.2` y ts-jest `^29.4.12` para tests móviles.
 
 ### Backend
 
