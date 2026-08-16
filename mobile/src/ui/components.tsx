@@ -1,6 +1,6 @@
 import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View, type ImageProps, type PressableProps, type TextInputProps, type TextProps } from 'react-native';
 import type { ReactNode } from 'react';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from './tokens';
 type TextVariant = 'display' | 'heading' | 'title' | 'body' | 'bodySecondary' | 'caption' | 'label' | 'button';
 
@@ -108,7 +108,8 @@ export function AppInput({ label, error, className = '', ...props }: AppInputPro
 }
 
 export function Screen({ children }: { children: ReactNode }) {
-  return <SafeAreaView edges={['top', 'right', 'bottom', 'left']} className="flex-1 bg-background p-lg">{children}</SafeAreaView>;
+  const insets = useSafeAreaInsets();
+  return <View style={{ flex: 1, paddingTop: insets.top, paddingBottom: insets.bottom, paddingLeft: insets.left, paddingRight: insets.right }} className="bg-background p-lg">{children}</View>;
 }
 
 

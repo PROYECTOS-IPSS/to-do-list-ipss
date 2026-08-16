@@ -27,7 +27,7 @@ backend/ Express + TypeScript + Zod
 PostgreSQL
 ```
 
-Mobile y backend son workspaces npm independientes. No mezclar responsabilidades entre ambos.
+Mobile y backend son workspaces npm del monorepo raíz. No mezclar responsabilidades entre ambos.
 
 ## Stack actual
 
@@ -43,12 +43,19 @@ Mobile y backend son workspaces npm independientes. No mezclar responsabilidades
 - `react-native-css-interop` `^0.1.22`.
 - `react-native-reanimated` `^3.19.4`.
 - `react-native-safe-area-context` `~5.6.0`.
-- AsyncStorage `^2.2.0`.
-- expo-secure-store `~15.0.8`.
-- expo-image-picker `~17.0.11`.
-- expo-location `~19.0.8`.
-- expo-audio `~1.1.1`.
-- expo-file-system `~19.0.23`.
+- `@react-native-async-storage/async-storage` `^2.2.0`.
+- `react-native-screens` `~4.16.0`.
+- `expo-secure-store` `~15.0.8`.
+- `expo-image-picker` `~17.0.11`.
+- `expo-camera` `~17.0.10`.
+- `expo-location` `~19.0.8`.
+- `expo-audio` `~1.1.1`.
+- `expo-file-system` `~19.0.23`.
+- `expo-asset` `~12.0.13`.
+- `expo-dev-client` `~6.0.0`.
+- `expo-status-bar` `~3.0.0`.
+- Zod `^4.4.3`.
+- Jest `^30.4.2` y ts-jest `^29.4.12` para tests móviles.
 
 ### Backend
 
@@ -82,10 +89,13 @@ mobile/
 ├── app.json
 ├── eas.json
 ├── babel.config.js
+├── expo-env.d.ts
 ├── global.css
+├── jest.config.cjs
 ├── metro.config.js
 ├── nativewind-env.d.ts
 ├── tailwind.config.js
+├── tsconfig.json
 └── package.json
 
 backend/
@@ -228,7 +238,7 @@ Android:
 npm run android --workspace mobile
 ```
 
-La suite actual usa Jest + Supertest en backend y cubre auth, ownership, CRUD, validación, attachments, GPS, audio y preferencias. Hardware real requiere Development Build Android.
+La suite de backend usa Jest + Supertest (7 suites, 61 tests) y cubre auth, ownership, CRUD, validación, attachments, GPS, audio y preferencias. Mobile tiene `mobile/jest.config.cjs` y tests de esquemas en `mobile/src/services/__tests__/`. Hardware real requiere Development Build Android.
 
 ## Deployment
 
