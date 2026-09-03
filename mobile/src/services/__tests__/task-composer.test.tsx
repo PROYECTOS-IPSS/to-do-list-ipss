@@ -1,5 +1,5 @@
 import { useState, type ComponentProps } from 'react';
-import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+import { act, render } from '@testing-library/react-native';
 import { getCurrentLocation, takePhoto } from '../peripherals';
 import { useTaskComposer, type ComposerFeedback, type TaskComposer } from '../task-composer';
 import type { LocalTask } from '../task-repository';
@@ -58,15 +58,12 @@ function currentProbe(): Probe {
   return probe;
 }
 
-function unmount(renderer: ReactTestRenderer) {
-  act(() => { renderer.unmount(); });
+async function unmount(renderer: Awaited<ReturnType<typeof mount>>) {
+  await renderer.unmount();
 }
 
-function mount(options?: ComponentProps<typeof Harness>) {
-  let renderer: ReactTestRenderer | undefined;
-  act(() => { renderer = create(<Harness {...options} />); });
-  if (!renderer) throw new Error('Test renderer did not mount.');
-  return renderer;
+async function mount(options?: ComponentProps<typeof Harness>) {
+  return render(<Harness {...options} />);
 }
 
 describe('task composer camera and GPS flows', () => {
@@ -78,7 +75,7 @@ describe('task composer camera and GPS flows', () => {
 
   it('keeps a successful photo, releases loading, and allows a second capture', async () => {
     jest.mocked(takePhoto).mockResolvedValueOnce(photo).mockResolvedValueOnce({ ...photo, uri: 'file://second.jpg' });
-    const renderer = mount();
+    const renderer = await mount()
 
     await act(async () => { await currentProbe().composer.attachPhoto(); });
     expect(currentProbe().photoUri).toBe(photo.uri);
@@ -88,35 +85,35 @@ describe('task composer camera and GPS flows', () => {
     await act(async () => { await currentProbe().composer.attachPhoto(); });
     expect(takePhoto).toHaveBeenCalledTimes(2);
     expect(currentProbe().photoUri).toBe('file://second.jpg');
-    unmount(renderer);
+    await unmount(renderer);
   });
 
   it('treats camera cancellation as a quiet result and releases loading', async () => {
     jest.mocked(takePhoto).mockResolvedValue(undefined);
-    const renderer = mount();
+    const renderer = await mount()
 
     await act(async () => { await currentProbe().composer.attachPhoto(); });
     expect(currentProbe().photoUri).toBeUndefined();
     expect(currentProbe().feedback).toBeUndefined();
     expect(currentProbe().composer.photoLoading).toBe(false);
-    unmount(renderer);
+    await unmount(renderer);
   });
 
   it('reports camera errors and releases loading', async () => {
     jest.mocked(takePhoto).mockRejectedValue(new Error('permission denied'));
-    const renderer = mount();
+    const renderer = await mount()
 
     await act(async () => { await currentProbe().composer.attachPhoto(); });
     expect(currentProbe().feedback?.tone).toBe('error');
     expect(currentProbe().composer.photoLoading).toBe(false);
-    unmount(renderer);
+    await unmount(renderer);
   });
 
   it('does not open camera twice while the first capture is pending', async () => {
     let resolvePhoto: (value: typeof photo) => void = () => undefined;
     const pendingPhoto = new Promise<typeof photo>((resolve) => { resolvePhoto = resolve; });
     jest.mocked(takePhoto).mockReturnValueOnce(pendingPhoto);
-    const renderer = mount();
+    const renderer = await mount()
     let firstCapture: Promise<void> | undefined;
 
     await act(async () => {
@@ -131,21 +128,21 @@ describe('task composer camera and GPS flows', () => {
       await firstCapture;
     });
     expect(currentProbe().composer.photoLoading).toBe(false);
-    unmount(renderer);
+    await unmount(renderer);
   });
 
   it('does not update photo state after unmount during capture', async () => {
     let resolvePhoto: (value: typeof photo) => void = () => undefined;
     const pendingPhoto = new Promise<typeof photo>((resolve) => { resolvePhoto = resolve; });
     jest.mocked(takePhoto).mockReturnValueOnce(pendingPhoto);
-    const renderer = mount();
+    const renderer = await mount()
     let capture: Promise<void> | undefined;
 
     await act(async () => {
       capture = currentProbe().composer.attachPhoto();
       await Promise.resolve();
     });
-    unmount(renderer);
+    await unmount(renderer);
     await act(async () => {
       resolvePhoto(photo);
       await capture;
@@ -154,7 +151,7 @@ describe('task composer camera and GPS flows', () => {
   });
 
   it('clears remote location, updates task, and releases loading', async () => {
-    const renderer = mount();
+    const renderer = await mount()
 
     await act(async () => { await currentProbe().composer.removeLocation(); });
     expect(updateTask).toHaveBeenCalledWith('owner-1', 'remote', 'token', localTask, {
@@ -164,12 +161,12 @@ describe('task composer camera and GPS flows', () => {
     expect(currentProbe().tasks[0]).toMatchObject(clearedTask);
     expect(currentProbe().feedback?.tone).toBe('success');
     expect(currentProbe().composer.locationLoading).toBe(false);
-    unmount(renderer);
+    await unmount(renderer);
   });
 
   it('keeps remote location after API failure and permits retry', async () => {
     updateTask.mockRejectedValueOnce(new Error('server error')).mockResolvedValueOnce({ task: clearedTask, source: 'remote', pending: false });
-    const renderer = mount();
+    const renderer = await mount()
 
     await act(async () => { await currentProbe().composer.removeLocation(); });
     expect(currentProbe().location).toEqual(oldLocation);
@@ -180,24 +177,24 @@ describe('task composer camera and GPS flows', () => {
     await act(async () => { await currentProbe().composer.removeLocation(); });
     expect(updateTask).toHaveBeenCalledTimes(2);
     expect(currentProbe().location).toBeUndefined();
-    unmount(renderer);
+    await unmount(renderer);
   });
 
   it('clears a new task location locally without calling the store', async () => {
-    const renderer = mount({ newTask: true });
+    const renderer = await mount({ newTask: true })
 
     await act(async () => { await currentProbe().composer.removeLocation(); });
     expect(updateTask).not.toHaveBeenCalled();
     expect(currentProbe().location).toBeUndefined();
     expect(currentProbe().composer.locationLoading).toBe(false);
-    unmount(renderer);
+    await unmount(renderer);
   });
 
   it('does not submit remote location removal twice while pending', async () => {
     let resolveUpdate: (value: { task: LocalTask; source: 'remote'; pending: false }) => void = () => undefined;
     const pendingUpdate = new Promise<{ task: LocalTask; source: 'remote'; pending: false }>((resolve) => { resolveUpdate = resolve; });
     updateTask.mockReturnValueOnce(pendingUpdate);
-    const renderer = mount();
+    const renderer = await mount()
     let firstRemoval: Promise<void> | undefined;
 
     await act(async () => {
@@ -212,16 +209,16 @@ describe('task composer camera and GPS flows', () => {
       await firstRemoval;
     });
     expect(currentProbe().location).toBeUndefined();
-    unmount(renderer);
+    await unmount(renderer);
   });
 
   it('releases location loading after a location acquisition error', async () => {
     jest.mocked(getCurrentLocation).mockRejectedValue(new Error('GPS disabled'));
-    const renderer = mount();
+    const renderer = await mount()
 
     await act(async () => { await currentProbe().composer.attachLocation(); });
     expect(currentProbe().feedback?.tone).toBe('error');
     expect(currentProbe().composer.locationLoading).toBe(false);
-    unmount(renderer);
+    await unmount(renderer);
   });
 });
