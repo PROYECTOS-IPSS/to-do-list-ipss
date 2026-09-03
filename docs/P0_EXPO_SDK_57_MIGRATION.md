@@ -125,8 +125,8 @@ Desde raíz:
 
 ```bash
 npm ci
-cp backend/.env.example backend/.env
-cp mobile/.env.example mobile/.env
+test -e backend/.env || cp backend/.env.example backend/.env
+test -e mobile/.env || cp mobile/.env.example mobile/.env
 npm run prisma:generate
 npm run prisma:migrate
 npm run backend
@@ -172,8 +172,8 @@ Bundle Android confirma Babel/Metro, no sustituye instalación y ejercicio de pe
 ## Reversión segura
 
 1. Guardar o revisar cambios locales antes de cambiar de rama; no ejecutar `git reset --hard`, `git clean` ni `checkout` destructivo.
-2. Volver a la rama anterior con `git switch <rama-anterior>` solo después de confirmar que sus cambios están conservados.
-3. Para conservar esta migración como referencia, mantener la rama `chore/expo-sdk-57` sin hacer commit automático.
+2. Una rama sin commits no conserva por sí sola cambios pendientes: hacer commit, stash o exportar un parche antes de cambiar de rama. Esta migración no hizo commit automático.
+3. Volver a la rama anterior con `git switch <rama-anterior>` solo después de confirmar que sus cambios están conservados.
 4. Si se necesita reconstruir dependencias de una rama, ejecutar `npm ci` usando el `package-lock.json` de esa rama; no copiar `node_modules` entre ramas.
 5. Restaurar Android únicamente desde los archivos versionados de la rama objetivo y revisar `git diff` antes de cualquier operación destructiva.
 
