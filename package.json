@@ -1,5 +1,5 @@
 {
-  "name": "task-manager-mobile",
+  "name": "task-manager-workspace",
   "private": true,
   "workspaces": [
     "mobile",
@@ -13,18 +13,14 @@
     "typecheck": "npm --workspace mobile run typecheck && npm --workspace backend run typecheck",
     "prisma:generate": "npm --workspace backend run prisma:generate",
     "prisma:migrate": "npm --workspace backend run prisma:migrate",
-    "test": "npm --workspace backend test",
+    "test:backend": "npm --workspace backend test",
+    "test:mobile": "npm --workspace mobile test",
+    "test": "npm run test:backend && npm run test:mobile",
     "lint": "eslint ."
   },
   "devDependencies": {
     "@eslint/js": "^9.33.0",
     "eslint": "^9.33.0",
     "typescript-eslint": "^8.39.0"
-  },
-  "dependencies": {
-    "expo-audio": "~1.1.1",
-    "expo-camera": "~17.0.10",
-    "expo-location": "~19.0.8",
-    "expo-secure-store": "~15.0.8"
   }
 }

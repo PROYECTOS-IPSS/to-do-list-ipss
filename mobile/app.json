@@ -6,7 +6,6 @@
     "orientation": "portrait",
     "scheme": "task-manager",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "plugins": [
       "expo-router",
       "expo-dev-client",
@@ -14,7 +13,9 @@
       "expo-camera",
       "expo-location",
       "expo-audio",
-      "expo-asset"
+      "expo-asset",
+      "expo-font",
+      "expo-status-bar"
     ],
     "experiments": {
       "typedRoutes": true
