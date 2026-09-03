@@ -9,7 +9,7 @@ Suites afectadas:
 
 Ambas usaban directamente `create()` y tipos de `react-test-renderer`, provocando `react-test-renderer is deprecated` con React `19.2.3`.
 
-El servicio `mobile/src/services/preferences.ts` emite dos warnings intencionales cuando AsyncStorage falla: `[preferences] unable to read task filter` y `[preferences] unable to save task filter`. No existen en este checkout tests que simulen esos fallos; no se modificó el servicio ni se añadió silenciamiento global.
+El servicio `mobile/src/services/preferences.ts` emite dos warnings intencionales cuando AsyncStorage falla. Los casos que los provocan existen en `backend/tests/preferences.test.ts`.
 
 ## Migración elegida
 
@@ -55,4 +55,4 @@ Resultados:
 - El warning directo de `react-test-renderer` desapareció en las suites afectadas.
 - No aparecieron warnings de `act`, promesas sin manejar ni cleanup.
 
-La suite mobile aún muestra `console.info` de diagnóstico de auth existente; no es warning de React ni se modificó en esta tarea. Los warnings de preferencias no fueron producidos porque no hay tests de fallo de preferencias en el checkout actual; si se añaden casos, deben usar spy local, validar mensaje y restaurar `console.warn`.
+La suite mobile aún muestra `console.info` de diagnóstico de auth existente; no es warning de React ni se modificó en esta tarea. Los warnings de preferencias se validan y contienen localmente en `backend/tests/preferences.test.ts`: el spy compara mensaje y referencia exacta del error, suprime solo esas dos llamadas y delega cualquier argumento inesperado al método original. La deprecación de `react-test-renderer` queda resuelta por la migración RNTL v14 y es independiente de estos warnings.

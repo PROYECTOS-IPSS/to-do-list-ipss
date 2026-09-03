@@ -26,11 +26,26 @@ describe('local task filter preferences', () => {
   });
 
   it('uses default and does not crash when storage fails', async () => {
-    storage.getItem.mockRejectedValue(new Error('storage unavailable'));
-    storage.setItem.mockRejectedValue(new Error('storage unavailable'));
-
-    await expect(preferences.getTaskFilter()).resolves.toBe(defaultTaskFilter);
-    await expect(preferences.setTaskFilter('active')).resolves.toBeUndefined();
+    const readError = new Error('storage unavailable');
+    const saveError = new Error('storage unavailable');
+    storage.getItem.mockRejectedValue(readError);
+    storage.setItem.mockRejectedValue(saveError);
+    const originalWarn = console.warn;
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      const [message, error] = args;
+      const expected = (message === '[preferences] unable to read task filter' && error === readError)
+        || (message === '[preferences] unable to save task filter' && error === saveError);
+      if (!expected) originalWarn(...args);
+    });
+    try {
+      await expect(preferences.getTaskFilter()).resolves.toBe(defaultTaskFilter);
+      await expect(preferences.setTaskFilter('active')).resolves.toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledTimes(2);
+      expect(warnSpy).toHaveBeenNthCalledWith(1, '[preferences] unable to read task filter', readError);
+      expect(warnSpy).toHaveBeenNthCalledWith(2, '[preferences] unable to save task filter', saveError);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it('rejects invalid stored values to the default', async () => {
