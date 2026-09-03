@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { getCurrentLocation, takePhoto } from './peripherals';
-import { tasksApi, type Task, type TaskLocationClearInput, type TaskLocationInput } from './tasks';
+import type { LocalTask, LocalTaskInput } from './task-repository';
+import type { TaskStore } from './task-store';
+import type { AccessMode } from '../auth/AuthProvider';
 import type { TaskLocation } from './location-validation';
 
 export type ComposerFeedback = { message: string; tone: 'success' | 'error' | 'info' };
-
 export type TaskComposer = {
   locationLoading: boolean;
   photoLoading: boolean;
@@ -15,30 +16,33 @@ export type TaskComposer = {
 
 type TaskComposerOptions = {
   token: string | null;
-  editingId?: string;
+  accessMode: AccessMode;
+  ownerId: string | null;
+  taskStore: Pick<TaskStore, 'update'> | null;
+  task?: LocalTask;
   saving: boolean;
-  setTasks: Dispatch<SetStateAction<Task[]>>;
+  setTasks: Dispatch<SetStateAction<LocalTask[]>>;
   setLocation: Dispatch<SetStateAction<TaskLocation | undefined>>;
   setPhotoUri: Dispatch<SetStateAction<string | undefined>>;
   setPhotoPending: Dispatch<SetStateAction<boolean>>;
   setFeedback: (feedback: ComposerFeedback) => void;
 };
 
-export const locationInput = (location: TaskLocation): TaskLocationInput => ({
+export const locationInput = (location: TaskLocation): Partial<LocalTaskInput> => ({
   latitude: location.latitude,
   longitude: location.longitude,
   locationAccuracy: location.accuracy,
   locationTimestamp: location.timestamp
 });
 
-const clearLocation = (): TaskLocationClearInput => ({
+const clearLocation = (): Partial<LocalTaskInput> => ({
   latitude: null,
   longitude: null,
   locationAccuracy: null,
   locationTimestamp: null
 });
 
-export function useTaskComposer({ token, editingId, saving, setTasks, setLocation, setPhotoUri, setPhotoPending, setFeedback }: TaskComposerOptions): TaskComposer {
+export function useTaskComposer({ token, accessMode, ownerId, taskStore, task, saving, setTasks, setLocation, setPhotoUri, setPhotoPending, setFeedback }: TaskComposerOptions): TaskComposer {
   const [locationLoading, setLocationLoading] = useState(false);
   const [photoLoading, setPhotoLoading] = useState(false);
   const locationBusy = useRef(false);
@@ -55,9 +59,9 @@ export function useTaskComposer({ token, editingId, saving, setTasks, setLocatio
     if (mounted.current) setLocationLoading(true);
     try {
       const nextLocation = await getCurrentLocation();
-      if (editingId && token) {
-        const updated = await tasksApi.update(token, editingId, locationInput(nextLocation));
-        if (mounted.current) setTasks((current) => current.map((item) => item.id === updated.id ? updated : item));
+      if (task && taskStore && ownerId) {
+        const result = await taskStore.update(ownerId, accessMode, token, task, locationInput(nextLocation));
+        if (mounted.current && result.task) setTasks((current) => current.map((item) => item.localId === result.task?.localId ? result.task : item));
       }
       if (mounted.current) setLocation(nextLocation);
     } catch {
@@ -66,21 +70,20 @@ export function useTaskComposer({ token, editingId, saving, setTasks, setLocatio
       locationBusy.current = false;
       if (mounted.current) setLocationLoading(false);
     }
-  }, [editingId, setFeedback, setLocation, setTasks, token]);
+  }, [accessMode, ownerId, setFeedback, setLocation, setTasks, task, taskStore, token]);
 
   const removeLocation = useCallback(async () => {
     if (locationBusy.current || savingRef.current) return;
-    if (!editingId) {
+    if (!task || !taskStore || !ownerId) {
       if (mounted.current) setLocation(undefined);
       return;
     }
-    if (!token) return;
     locationBusy.current = true;
     if (mounted.current) setLocationLoading(true);
     try {
-      const updated = await tasksApi.update(token, editingId, clearLocation());
+      await taskStore.update(ownerId, accessMode, token, task, clearLocation());
       if (mounted.current) {
-        setTasks((current) => current.map((item) => item.id === updated.id ? updated : item));
+        setTasks((current) => current.map((item) => item.localId === task.localId ? { ...item, latitude: null, longitude: null, locationAccuracy: null, locationTimestamp: null } : item));
         setLocation(undefined);
         setFeedback({ message: 'Ubicación eliminada.', tone: 'success' });
       }
@@ -90,7 +93,7 @@ export function useTaskComposer({ token, editingId, saving, setTasks, setLocatio
       locationBusy.current = false;
       if (mounted.current) setLocationLoading(false);
     }
-  }, [editingId, setFeedback, setLocation, setTasks, token]);
+  }, [accessMode, ownerId, setFeedback, setLocation, setTasks, task, taskStore, token]);
 
   const attachPhoto = useCallback(async () => {
     if (photoBusy.current || savingRef.current) return;

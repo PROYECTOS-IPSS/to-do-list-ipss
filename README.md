@@ -17,7 +17,7 @@ Repositorio monorepo npm:
 - CRUD de tareas.
 - Completar y reabrir tareas.
 - Eliminación con confirmación visual propia.
-- Filtros `Todas`, `Pendientes` y `Completadas` persistidos en AsyncStorage.
+- Persistencia local SQLite por usuario para tareas y fotografías cuando red no está disponible.
 - Estados de carga, error, retry, éxito y vacío.
 - Feedback visual para operaciones importantes.
 - Cámara contextual para fotografías de tareas.
@@ -74,6 +74,8 @@ Cada tarea y attachment se consulta usando el `userId` extraído del JWT. El cli
 | Dato | Ubicación |
 |---|---|
 | JWT | `expo-secure-store` |
+| Tareas locales | SQLite (`expo-sqlite`), aisladas por usuario |
+| Fotografías locales | `FileSystem.documentDirectory`, aisladas por usuario |
 | Preferencias de UI/filtro | AsyncStorage |
 | Usuarios | PostgreSQL vía Prisma |
 | Tareas | PostgreSQL vía Prisma |
@@ -108,8 +110,8 @@ Versiones declaradas en `mobile/package.json`:
 - `expo-image-picker` `~57.0.15`.
 - `expo-camera` `~57.0.4`.
 - `expo-location` `~57.0.15`.
-- `expo-audio` `~57.0.4`.
 - `expo-file-system` `~57.0.6`.
+- `expo-sqlite` `~57.0.2`.
 - `expo-asset` `~57.0.16`.
 - `expo-dev-client` `~57.0.18`.
 - `expo-status-bar` `~57.0.1` + `expo-system-ui` `~57.0.3`.
@@ -553,7 +555,7 @@ Cambios JS/TS/UI normalmente requieren Metro o recarga del Development Build exi
 - Los tests de attachments mockean Prisma y no sustituyen una prueba completa de disco.
 - Logout backend es stateless; el servidor no mantiene blacklist de JWT.
 - Home obtiene metadata de imágenes por tarea usando servicios existentes; un backend futuro podría incluir previews resumidas en la lista para evitar N+1.
-- No existe sincronización offline, queue de requests ni resolución de conflictos.
+- No existe sincronización automática, queue de requests ni resolución de conflictos; eso queda fuera de P2.
 - No existe tracking GPS en background ni grabación de audio en background.
 
 ## Cumplimiento de la rúbrica

@@ -1,47 +1,53 @@
 import { useState, type ComponentProps } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { getCurrentLocation, takePhoto } from '../peripherals';
-import { tasksApi, type Task } from '../tasks';
 import { useTaskComposer, type ComposerFeedback, type TaskComposer } from '../task-composer';
+import type { LocalTask } from '../task-repository';
+import type { TaskStore } from '../task-store';
 import type { TaskLocation } from '../location-validation';
+
+type UpdateTask = Pick<TaskStore, 'update'>['update'];
+const updateTask: jest.MockedFunction<UpdateTask> = jest.fn();
+const taskStore = { update: updateTask };
 
 jest.mock('../peripherals', () => ({
   getCurrentLocation: jest.fn(),
   takePhoto: jest.fn()
 }));
-jest.mock('../tasks', () => ({
-  tasksApi: { update: jest.fn() }
-}));
 
 const photo = { type: 'image' as const, uri: 'file://photo.jpg', width: 100, height: 100 };
 const oldLocation: TaskLocation = { latitude: 1, longitude: 2, accuracy: 10, timestamp: '2026-01-01T00:00:00.000Z' };
-const task: Task = {
-  id: 'task-1', title: 'Tarea', description: null, completed: false,
+const localTask: LocalTask = {
+  id: 'local-task-1', localId: 'local-task-1', ownerId: 'owner-1', remoteId: 'remote-task-1',
+  title: 'Tarea', description: null, completed: false,
   latitude: oldLocation.latitude, longitude: oldLocation.longitude,
   locationAccuracy: oldLocation.accuracy, locationTimestamp: oldLocation.timestamp,
-  createdAt: oldLocation.timestamp, updatedAt: oldLocation.timestamp
+  createdAt: oldLocation.timestamp, updatedAt: oldLocation.timestamp,
+  localUpdatedAt: oldLocation.timestamp, syncState: 'clean', remoteOutcome: 'none', deletedAt: null
 };
-const clearedTask = { ...task, latitude: null, longitude: null, locationAccuracy: null, locationTimestamp: null };
+const clearedTask: LocalTask = { ...localTask, latitude: null, longitude: null, locationAccuracy: null, locationTimestamp: null };
 
 type Probe = {
   composer: TaskComposer;
   location: TaskLocation | undefined;
   photoUri: string | undefined;
   photoPending: boolean;
-  tasks: Task[];
+  tasks: LocalTask[];
   feedback: ComposerFeedback | undefined;
 };
 
 let probe: Probe | undefined;
 
-function Harness({ editingId, newTask = false, initialLocation = oldLocation, initialTasks = [task] }: { editingId?: string; newTask?: boolean; initialLocation?: TaskLocation; initialTasks?: Task[] }) {
+function Harness({ editingId, newTask = false, initialLocation = oldLocation, initialTasks = [localTask] }: { editingId?: string; newTask?: boolean; initialLocation?: TaskLocation; initialTasks?: LocalTask[] }) {
   const [location, setLocation] = useState<TaskLocation | undefined>(initialLocation);
   const [photoUri, setPhotoUri] = useState<string>();
   const [photoPending, setPhotoPending] = useState(false);
-  const [tasks, setTasks] = useState(initialTasks);
+  const [tasks, setTasks] = useState<LocalTask[]>(initialTasks);
   const [feedback, setFeedback] = useState<ComposerFeedback>();
+  const actualEditingId = newTask ? undefined : (editingId ?? localTask.localId);
   const composer = useTaskComposer({
-    token: 'token', editingId: newTask ? undefined : (editingId ?? 'task-1'), saving: false, setTasks, setLocation, setPhotoUri, setPhotoPending, setFeedback
+    token: 'token', accessMode: 'remote', ownerId: 'owner-1', taskStore, task: tasks.find((item) => item.localId === actualEditingId), saving: false,
+    setTasks, setLocation, setPhotoUri, setPhotoPending, setFeedback
   });
   probe = { composer, location, photoUri, photoPending, tasks, feedback };
   return null;
@@ -52,17 +58,22 @@ function currentProbe(): Probe {
   return probe;
 }
 
+function unmount(renderer: ReactTestRenderer) {
+  act(() => { renderer.unmount(); });
+}
+
 function mount(options?: ComponentProps<typeof Harness>) {
   let renderer: ReactTestRenderer | undefined;
   act(() => { renderer = create(<Harness {...options} />); });
   if (!renderer) throw new Error('Test renderer did not mount.');
   return renderer;
 }
-const unmount = (renderer: ReactTestRenderer) => { act(() => { renderer.unmount(); }); };
+
 describe('task composer camera and GPS flows', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     probe = undefined;
+    updateTask.mockImplementation(async (_owner, _mode, _token, task, patch) => ({ task: { ...task, ...patch }, source: 'remote', pending: false }));
   });
 
   it('keeps a successful photo, releases loading, and allows a second capture', async () => {
@@ -143,50 +154,49 @@ describe('task composer camera and GPS flows', () => {
   });
 
   it('clears remote location, updates task, and releases loading', async () => {
-    jest.mocked(tasksApi.update).mockResolvedValue(clearedTask);
     const renderer = mount();
 
     await act(async () => { await currentProbe().composer.removeLocation(); });
-    expect(tasksApi.update).toHaveBeenCalledWith('token', 'task-1', {
+    expect(updateTask).toHaveBeenCalledWith('owner-1', 'remote', 'token', localTask, {
       latitude: null, longitude: null, locationAccuracy: null, locationTimestamp: null
     });
     expect(currentProbe().location).toBeUndefined();
-    expect(currentProbe().tasks).toEqual([clearedTask]);
+    expect(currentProbe().tasks[0]).toMatchObject(clearedTask);
     expect(currentProbe().feedback?.tone).toBe('success');
     expect(currentProbe().composer.locationLoading).toBe(false);
     unmount(renderer);
   });
 
   it('keeps remote location after API failure and permits retry', async () => {
-    jest.mocked(tasksApi.update).mockRejectedValueOnce(new Error('server error')).mockResolvedValueOnce(clearedTask);
+    updateTask.mockRejectedValueOnce(new Error('server error')).mockResolvedValueOnce({ task: clearedTask, source: 'remote', pending: false });
     const renderer = mount();
 
     await act(async () => { await currentProbe().composer.removeLocation(); });
     expect(currentProbe().location).toEqual(oldLocation);
-    expect(currentProbe().tasks).toEqual([task]);
+    expect(currentProbe().tasks[0]).toEqual(localTask);
     expect(currentProbe().feedback?.tone).toBe('error');
     expect(currentProbe().composer.locationLoading).toBe(false);
 
     await act(async () => { await currentProbe().composer.removeLocation(); });
-    expect(tasksApi.update).toHaveBeenCalledTimes(2);
+    expect(updateTask).toHaveBeenCalledTimes(2);
     expect(currentProbe().location).toBeUndefined();
     unmount(renderer);
   });
 
-  it('clears a new task location locally without calling the API', async () => {
+  it('clears a new task location locally without calling the store', async () => {
     const renderer = mount({ newTask: true });
 
     await act(async () => { await currentProbe().composer.removeLocation(); });
-    expect(tasksApi.update).not.toHaveBeenCalled();
+    expect(updateTask).not.toHaveBeenCalled();
     expect(currentProbe().location).toBeUndefined();
     expect(currentProbe().composer.locationLoading).toBe(false);
     unmount(renderer);
   });
 
   it('does not submit remote location removal twice while pending', async () => {
-    let resolveUpdate: (value: Task) => void = () => undefined;
-    const pendingUpdate = new Promise<Task>((resolve) => { resolveUpdate = resolve; });
-    jest.mocked(tasksApi.update).mockReturnValueOnce(pendingUpdate);
+    let resolveUpdate: (value: { task: LocalTask; source: 'remote'; pending: false }) => void = () => undefined;
+    const pendingUpdate = new Promise<{ task: LocalTask; source: 'remote'; pending: false }>((resolve) => { resolveUpdate = resolve; });
+    updateTask.mockReturnValueOnce(pendingUpdate);
     const renderer = mount();
     let firstRemoval: Promise<void> | undefined;
 
@@ -195,10 +205,10 @@ describe('task composer camera and GPS flows', () => {
       await Promise.resolve();
     });
     await act(async () => { await currentProbe().composer.removeLocation(); });
-    expect(tasksApi.update).toHaveBeenCalledTimes(1);
+    expect(updateTask).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      resolveUpdate(clearedTask);
+      resolveUpdate({ task: clearedTask, source: 'remote', pending: false });
       await firstRemoval;
     });
     expect(currentProbe().location).toBeUndefined();

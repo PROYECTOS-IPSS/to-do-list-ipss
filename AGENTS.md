@@ -51,7 +51,7 @@ Mobile y backend son workspaces npm del monorepo raíz. No mezclar responsabilid
 - `expo-camera` `~57.0.4`.
 - `expo-location` `~57.0.15`.
 - `expo-audio` `~57.0.4`.
-- `expo-file-system` `~57.0.6`.
+- `expo-sqlite` `~57.0.2`.
 - `expo-asset` `~57.0.16`.
 - `expo-dev-client` `~57.0.18`.
 - `expo-status-bar` `~57.0.1`.
@@ -152,8 +152,9 @@ postman/task-manager.postman_collection.json
 
 - JWT se guarda únicamente en `expo-secure-store`.
 - AsyncStorage se usa solamente para preferencias no sensibles, actualmente filtro de tareas.
+- SQLite local persiste tareas y fotografías por `ownerId`; no contiene credenciales.
 - Nunca guardar password, JWT, refresh token, secreto o credencial en AsyncStorage.
-- `AuthProvider` recupera token, valida `/api/auth/me` y limpia tokens inválidos.
+- `AuthProvider` recupera token, valida `/api/auth/me` y permite acceso local con identidad validada cuando red falla temporalmente.
 - No cambiar contratos de auth ni endpoints sin solicitud explícita.
 
 ## Backend y API
@@ -284,6 +285,6 @@ No implementar:
 - `any`, `@ts-ignore` o `@ts-nocheck` para ocultar errores;
 - APIs nuevas no solicitadas;
 - cambios de esquema o migraciones sin autorización;
-- offline-first, queues o conflict resolution;
+- colas ejecutoras, sincronización automática ni resolución de conflictos (P3); persistencia SQLite local offline por usuario sí está implementada.
 - background location/recording;
 - otra etapa automáticamente al terminar una tarea.

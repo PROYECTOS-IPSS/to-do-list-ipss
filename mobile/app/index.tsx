@@ -1,25 +1,29 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Image, View } from 'react-native';
 import { Redirect, useRouter } from 'expo-router';
 import { useAuth } from '../src/auth/AuthProvider';
 import { attachmentsApi } from '../src/services/attachments';
 import { preferences, type TaskFilter } from '../src/services/preferences';
-import { tasksApi, type Task } from '../src/services/tasks';
+import { getTaskStore } from '../src/services/local-tasks';
+import type { LocalTask, LocalTaskInput } from '../src/services/task-repository';
+import { TaskHttpError } from '../src/services/tasks';
+import { copyLocalImage, deleteLocalFile } from '../src/services/local-media';
+import type { TaskStore } from '../src/services/task-store';
 import type { TaskLocation } from '../src/services/location-validation';
 import { AppBadge, AppButton, AppConfirmModal, AppFeedback, AppInput, AppLogo, AppText, Card, Screen, StateMessage, TaskCard } from '../src/ui/components';
 import { locationInput, useTaskComposer } from '../src/services/task-composer';
 
 
-const taskLocation = (task: Task): TaskLocation | undefined => {
+const taskLocation = (task: LocalTask): TaskLocation | undefined => {
   if (task.latitude === null || task.longitude === null || task.locationAccuracy === null || task.locationTimestamp === null) return undefined;
   return { latitude: task.latitude, longitude: task.longitude, accuracy: task.locationAccuracy, timestamp: task.locationTimestamp };
 };
 
 
 export default function Index() {
-  const { user, token, loading: authLoading, restoreError, retryRestore, logout } = useAuth();
+  const { user, token, accessMode, loading: authLoading, restoreError, retryRestore, logout } = useAuth();
   const router = useRouter();
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const [tasks, setTasks] = useState<LocalTask[]>([]);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [editingId, setEditingId] = useState<string>();
@@ -37,38 +41,58 @@ export default function Index() {
   const [confirmTaskId, setConfirmTaskId] = useState<string>();
   const [feedback, setFeedback] = useState<{ message: string; tone: 'success' | 'error' | 'info' }>();
   const [taskImageUrls, setTaskImageUrls] = useState<Record<string, string>>({});
-  const { locationLoading, photoLoading, attachLocation, removeLocation, attachPhoto } = useTaskComposer({ token, editingId, saving, setTasks, setLocation, setPhotoUri, setPhotoPending, setFeedback });
+  const [taskStore, setTaskStore] = useState<TaskStore | null>(null);
+  const editingTask = tasks.find((item) => item.localId === editingId);
+  const { locationLoading, photoLoading, attachLocation, removeLocation, attachPhoto } = useTaskComposer({ token, accessMode, ownerId: user?.id ?? null, taskStore, task: editingTask, saving, setTasks, setLocation, setPhotoUri, setPhotoPending, setFeedback });
+  const loadVersion = useRef(0);
+  useEffect(() => () => { loadVersion.current += 1; }, []);
 
   const loadTasks = useCallback(async () => {
-    if (!token) return;
+    if (!user) return;
+    const version = ++loadVersion.current;
     setLoading(true);
     setError(undefined);
     try {
-      setTasks(await tasksApi.list(token));
-    } catch {
-      setError('No se pudieron cargar las tareas. Comprueba tu conexión e inténtalo nuevamente.');
+      const store = await getTaskStore();
+      if (version !== loadVersion.current) return;
+      setTaskStore(store);
+      const result = await store.load(user.id, accessMode, token);
+      if (version !== loadVersion.current) return;
+      setTasks(result.tasks);
+      if (result.source === 'local' && accessMode === 'remote') setFeedback({ message: 'Sin conexión: mostrando datos locales. Los cambios quedan pendientes.', tone: 'info' });
+    } catch (error) {
+      if (version !== loadVersion.current) return;
+      setError(error instanceof TaskHttpError && error.statusCode === 401 ? 'Sesión no autorizada. Vuelve a iniciar sesión.' : 'No se pudieron cargar las tareas locales. Inténtalo de nuevo.');
     } finally {
-      setLoading(false);
+      if (version === loadVersion.current) setLoading(false);
     }
-  }, [token]);
+  }, [accessMode, token, user]);
 
   useEffect(() => { void loadTasks(); }, [loadTasks]);
   useEffect(() => {
-    if (!token || tasks.length === 0) { setTaskImageUrls({}); return; }
+    if (!user || tasks.length === 0) { setTaskImageUrls({}); return; }
     let active = true;
-    // ponytail: one attachment metadata request per task; replace with list preview metadata if scale requires it.
-    void Promise.all(tasks.map(async (task) => {
-      try {
-        const images = await attachmentsApi.images(token, task.id) as Array<{ id: string }>;
-        return [task.id, images[0] ? attachmentsApi.imageFileUrl(task.id, images[0].id) : ''] as const;
-      } catch {
-        return [task.id, ''] as const;
+    void getTaskStore().then(async (store) => {
+      const localImages = await store.listLocalImages(user.id);
+      const entries: Record<string, string> = Object.fromEntries(localImages.map((image) => [image.taskLocalId, image.uri]));
+      if (accessMode === 'remote' && token) {
+        // ponytail: one attachment metadata request per remote task; use server list previews if scale requires it.
+        const remoteEntries = await Promise.all(tasks.filter((task) => task.remoteId).map(async (task) => {
+          try {
+            const images = await attachmentsApi.images(token, task.remoteId as string) as Array<{ id: string }>;
+            return images[0] ? [task.localId, attachmentsApi.imageFileUrl(task.remoteId as string, images[0].id)] as const : null;
+          } catch {
+            return null;
+          }
+        }));
+        remoteEntries.forEach((entry) => { if (entry) entries[entry[0]] = entry[1]; });
       }
-    })).then((entries) => {
-      if (active) setTaskImageUrls(Object.fromEntries(entries.filter(([, url]) => url)));
+      if (active) setTaskImageUrls(entries);
+    }).catch(() => {
+      if (active) setFeedback({ message: 'No se pudieron cargar las imágenes locales.', tone: 'error' });
     });
     return () => { active = false; };
-  }, [tasks, token]);
+  }, [accessMode, tasks, token, user]);
 
   useEffect(() => {
     let active = true;
@@ -87,41 +111,56 @@ export default function Index() {
 
   if (authLoading) return <Screen><StateMessage title="Cargando sesión..." /></Screen>;
   if (restoreError) return <Screen><StateMessage title={restoreError} tone="error" actionTitle="Reintentar" onAction={() => void retryRestore()} /></Screen>;
-  if (!user || !token) return <Redirect href="/auth/login" />;
-  const authenticatedToken = token;
+  if (!user || accessMode === 'none') return <Redirect href="/auth/login" />;
   const authenticatedUser = user;
-
+  const ownerId = user.id;
 
   const saveTask = async () => {
-    if (!title.trim() || saving) return;
+    if (!title.trim() || saving || !taskStore) return;
     setSaving(true);
     setError(undefined);
     const wasEditing = Boolean(editingId);
     try {
-      const input = { title: title.trim(), description: description.trim() || null, ...(location ? locationInput(location) : {}) };
-      const task = editingId ? await tasksApi.update(authenticatedToken, editingId, input) : await tasksApi.create(authenticatedToken, input);
-      setTasks((current) => wasEditing ? current.map((item) => item.id === task.id ? task : item) : [task, ...current]);
-      setTitle(''); setDescription(''); setEditingId(undefined); setLocation(undefined); setPhotoUri(undefined); setPhotoPending(false);
+      const input: LocalTaskInput = {
+        title: title.trim(), description: description.trim() || null, completed: editingTask?.completed ?? false,
+        latitude: location?.latitude ?? null, longitude: location?.longitude ?? null,
+        locationAccuracy: location?.accuracy ?? null, locationTimestamp: location?.timestamp ?? null
+      };
+      const taskToUpdate = editingTask;
+      if (editingId && !taskToUpdate) throw new Error('La tarea que intentas editar ya no está disponible.');
+      const result = editingId && taskToUpdate ? await taskStore.update(ownerId, accessMode, token, taskToUpdate, input) : await taskStore.create(ownerId, accessMode, token, input);
+      const savedTask = result.task;
+      if (!savedTask) throw new Error('La tarea no se pudo guardar localmente.');
+      setTasks((current) => wasEditing ? current.map((item) => item.localId === savedTask.localId ? savedTask : item) : [savedTask, ...current]);
       if (photoPending && photoUri) {
-        try { await attachmentsApi.uploadImage(authenticatedToken, task.id, photoUri); }
-        catch { setFeedback({ message: 'La tarea se guardó, pero no se pudo subir la imagen.', tone: 'error' }); return; }
+        if (result.source === 'remote' && savedTask.remoteId && token) {
+          try { await attachmentsApi.uploadImage(token, savedTask.remoteId, photoUri); }
+          catch { setFeedback({ message: 'La tarea se guardó, pero no se pudo subir la imagen.', tone: 'error' }); }
+        } else {
+          const localUri = await copyLocalImage(ownerId, savedTask.localId, photoUri);
+          await taskStore.saveLocalImage(ownerId, savedTask.localId, localUri);
+        }
       }
-      setFeedback({ message: wasEditing ? 'Tarea actualizada.' : 'Tarea creada.', tone: 'success' });
-    } catch {
-      setFeedback({ message: 'No se pudo guardar la tarea. Inténtalo de nuevo.', tone: 'error' });
+      setTitle(''); setDescription(''); setEditingId(undefined); setLocation(undefined); setPhotoUri(undefined); setPhotoPending(false);
+      if (result.pending) setFeedback({ message: result.source === 'uncertain' ? 'Guardada localmente; resultado remoto incierto. Pendiente de sincronización.' : 'Guardada localmente. Pendiente de sincronización.', tone: 'info' });
+      else setFeedback({ message: wasEditing ? 'Tarea actualizada.' : 'Tarea creada.', tone: 'success' });
+    } catch (error) {
+      if (error instanceof TaskHttpError) setFeedback({ message: `El servidor rechazó la operación (${error.statusCode}). No se guardó localmente.`, tone: 'error' });
+      else setFeedback({ message: 'No se pudo guardar la tarea localmente. Inténtalo de nuevo.', tone: 'error' });
     } finally {
       setSaving(false);
     }
   };
 
-  const toggleTask = async (task: Task) => {
-    if (saving || updatingId || deletingId) return;
-    setUpdatingId(task.id);
+  const toggleTask = async (task: LocalTask) => {
+    if (saving || updatingId || deletingId || !taskStore) return;
+    setUpdatingId(task.localId);
     try {
-      const updated = await tasksApi.update(authenticatedToken, task.id, { completed: !task.completed });
-      setTasks((current) => current.map((item) => item.id === updated.id ? updated : item));
-    } catch {
-      setFeedback({ message: 'No se pudo actualizar la tarea. Inténtalo de nuevo.', tone: 'error' });
+      const result = await taskStore.update(ownerId, accessMode, token, task, { completed: !task.completed });
+      const updatedTask = result.task;
+      if (updatedTask) setTasks((current) => current.map((item) => item.localId === updatedTask.localId ? updatedTask : item));
+    } catch (error) {
+      setFeedback({ message: error instanceof TaskHttpError ? `El servidor rechazó la operación (${error.statusCode}).` : 'No se pudo actualizar la tarea. Inténtalo de nuevo.', tone: 'error' });
     } finally {
       setUpdatingId(undefined);
     }
@@ -132,21 +171,26 @@ export default function Index() {
     setConfirmTaskId(id);
   };
   const confirmRemoveTask = async (id: string) => {
+    if (!taskStore) return;
+    const target = tasks.find((item) => item.localId === id);
+    if (!target) return;
     setDeletingId(id);
     try {
-      await tasksApi.remove(authenticatedToken, id);
-      setTasks((current) => current.filter((task) => task.id !== id));
-      setFeedback({ message: 'Tarea eliminada.', tone: 'success' });
-    } catch {
-      setFeedback({ message: 'No se pudo eliminar la tarea. Inténtalo de nuevo.', tone: 'error' });
+      const result = await taskStore.remove(ownerId, accessMode, token, target);
+      const fileUris = await taskStore.deleteLocalFiles(ownerId, target.localId);
+      fileUris.forEach(deleteLocalFile);
+      setTasks((current) => current.filter((task) => task.localId !== id));
+      setFeedback({ message: result.pending ? 'Eliminación guardada localmente. Pendiente de sincronización.' : 'Tarea eliminada.', tone: result.pending ? 'info' : 'success' });
+    } catch (error) {
+      setFeedback({ message: error instanceof TaskHttpError ? `El servidor rechazó la operación (${error.statusCode}).` : 'No se pudo eliminar la tarea. Inténtalo de nuevo.', tone: 'error' });
     } finally {
       setDeletingId(undefined);
       setConfirmTaskId(undefined);
     }
   };
-  const editTask = (task: Task) => {
+  const editTask = (task: LocalTask) => {
     if (saving || deletingId) return;
-    setEditingId(task.id); setTitle(task.title); setDescription(task.description ?? ''); setLocation(taskLocation(task));
+    setEditingId(task.localId); setTitle(task.title); setDescription(task.description ?? ''); setLocation(taskLocation(task));
   };
 
   const handleLogout = async () => {

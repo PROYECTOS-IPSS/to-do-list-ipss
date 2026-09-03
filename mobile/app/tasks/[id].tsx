@@ -4,12 +4,15 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { File } from 'expo-file-system';
 import { useAudioPlayer, useAudioPlayerStatus, type AudioSource } from 'expo-audio';
 import { useAuth } from '../../src/auth/AuthProvider';
+import { getTaskStore } from '../../src/services/local-tasks';
+import type { LocalTask } from '../../src/services/task-repository';
 import { attachmentsApi } from '../../src/services/attachments';
-import { requestMicrophonePermission, takePhoto, RecordingPresets, setAudioModeAsync, useAudioRecorder, useAudioRecorderState } from '../../src/services/peripherals';
-import { tasksApi, type Task } from '../../src/services/tasks';
+import { tasksApi } from '../../src/services/tasks';
+import { copyLocalImage, deleteLocalFile } from '../../src/services/local-media';
+import { requestMicrophonePermission, setAudioModeAsync, takePhoto, RecordingPresets, useAudioRecorder, useAudioRecorderState } from '../../src/services/peripherals';
 import { AppBadge, AppButton, AppConfirmModal, AppFeedback, AppHeader, AppImage, AppText, Card, Screen, StateMessage } from '../../src/ui/components';
 
-type ImageAttachment = { id: string; filename: string; url: string; mimeType: string; size: number; createdAt: string };
+type ImageAttachment = { id: string; filename: string; url: string; mimeType: string; size: number; createdAt: string; localUri?: string };
 type AudioAttachment = { id: string; url: string; duration: number; mimeType: string; size: number; createdAt: string };
 type PendingRecording = { uri: string; duration: number };
 type AudioState = 'idle' | 'requesting_permission' | 'recording' | 'stopping' | 'preview' | 'playing' | 'uploading';
@@ -43,12 +46,12 @@ const inspectRecordingFile = (uri: string | null) => {
 export default function TaskDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { token } = useAuth();
+  const { user, token, accessMode } = useAuth();
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder);
   const player = useAudioPlayer(null);
   const playerStatus = useAudioPlayerStatus(player);
-  const [task, setTask] = useState<Task>();
+  const [task, setTask] = useState<LocalTask>();
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [audios, setAudios] = useState<AudioAttachment[]>([]);
   const [error, setError] = useState<string>();
@@ -66,18 +69,33 @@ export default function TaskDetail() {
   const pendingRecordingRef = useRef<PendingRecording | undefined>(undefined);
 
   const loadData = useCallback(async () => {
-    if (!id || !token) return;
+    if (!id || !user) return;
     setLoading(true);
     setError(undefined);
     try {
-      const [loadedTask, loadedImages, loadedAudios] = await Promise.all([tasksApi.get(token, id), attachmentsApi.images(token, id), attachmentsApi.audios(token, id)]);
-      setTask(loadedTask); setImages(loadedImages); setAudios(loadedAudios); setImageStatuses(Object.fromEntries((loadedImages as ImageAttachment[]).map((image) => [image.id, 'loading'])));
+      const store = await getTaskStore();
+      const localTask = await store.find(user.id, id);
+      if (!localTask) throw new Error('missing');
+      let loadedTask = localTask;
+      if (accessMode === 'remote' && token && localTask.remoteId && localTask.syncState === 'clean') {
+        loadedTask = await store.saveRemote(user.id, await tasksApi.get(token, localTask.remoteId));
+      }
+      setTask(loadedTask);
+      const localFiles = (await store.listLocalImages(user.id)).filter((file) => file.taskLocalId === loadedTask.localId);
+      const localImages: ImageAttachment[] = localFiles.map((file) => ({ id: file.id, filename: 'Fotografía local', url: file.uri, mimeType: 'image/*', size: 0, createdAt: file.createdAt, localUri: file.uri }));
+      let loadedImages = localImages;
+      let loadedAudios: AudioAttachment[] = [];
+      if (accessMode === 'remote' && token && loadedTask.remoteId) {
+        loadedImages = [...await attachmentsApi.images(token, loadedTask.remoteId), ...localImages];
+        loadedAudios = await attachmentsApi.audios(token, loadedTask.remoteId);
+      }
+      setImages(loadedImages); setAudios(loadedAudios); setImageStatuses(Object.fromEntries(loadedImages.map((image) => [image.id, 'loading'])));
     } catch {
       setError('No se pudo cargar la tarea. Comprueba tu conexión e inténtalo nuevamente.');
     } finally {
       setLoading(false);
     }
-  }, [id, token]);
+  }, [accessMode, id, token, user]);
 
   useEffect(() => { void loadData(); }, [loadData]);
 
@@ -88,18 +106,9 @@ export default function TaskDetail() {
 
   useEffect(() => {
     return () => {
-      try {
-        if (recorder.isRecording) void recorder.stop();
-      } catch {
-        // Recorder may already be released by expo-audio.
-      }
+      try { if (recorder.isRecording) void recorder.stop(); } catch { /* native recorder cleanup is best effort */ }
       void setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false }).catch(() => undefined);
-      try {
-        player.pause();
-        void player.seekTo(0).catch(() => undefined);
-      } catch {
-        // Player may already be released by expo-audio.
-      }
+      try { player.pause(); void player.seekTo(0).catch(() => undefined); } catch { /* player cleanup is best effort */ }
       if (pendingRecordingRef.current) discardFile(pendingRecordingRef.current.uri);
     };
   }, [player, recorder]);
@@ -115,13 +124,19 @@ export default function TaskDetail() {
     setImageLoading(true);
     try {
       const photo = await takePhoto();
-      if (photo && token && id) {
-        const image = await attachmentsApi.uploadImage(token, id, photo.uri);
+      if (!photo || !task || !user) return;
+      const store = await getTaskStore();
+      if (accessMode !== 'remote' || !token || !task.remoteId) {
+        const uri = await copyLocalImage(user.id, task.localId, photo.uri);
+        const file = await store.saveLocalImage(user.id, task.localId, uri);
+        setImages((current) => [{ id: file.id, filename: 'Fotografía local', url: uri, mimeType: 'image/*', size: 0, createdAt: file.createdAt, localUri: uri }, ...current]);
+      } else {
+        const image = await attachmentsApi.uploadImage(token, task.remoteId, photo.uri);
         setImages((current) => [image, ...current]);
-        setPhotoUri(photo.uri);
       }
+      setPhotoUri(photo.uri);
     } catch {
-      setFeedback({ message: 'No se pudo capturar o subir la foto.', tone: 'error' });
+      setFeedback({ message: 'No se pudo capturar o guardar la foto.', tone: 'error' });
     } finally {
       setImageLoading(false);
     }
@@ -133,10 +148,17 @@ export default function TaskDetail() {
   };
 
   const confirmRemoveImage = async (imageId: string) => {
-    if (!token || !id) return;
+    if (!task || !user) return;
     setDeletingAttachment(imageId);
     try {
-      await attachmentsApi.deleteImage(token, id, imageId);
+      const image = images.find((item) => item.id === imageId);
+      const store = await getTaskStore();
+      if (image?.localUri) {
+        await store.deleteLocalFiles(user.id, task.localId);
+        await deleteLocalFile(image.localUri);
+      } else if (token && task.remoteId) {
+        await attachmentsApi.deleteImage(token, task.remoteId, imageId);
+      }
       setImages((current) => current.filter((image) => image.id !== imageId));
       setFeedback({ message: 'Imagen eliminada.', tone: 'success' });
     } catch {
@@ -146,14 +168,14 @@ export default function TaskDetail() {
       setConfirmAttachment(undefined);
     }
   };
+
   const removeAudio = (audioId: string) => {
     if (deletingAttachment || imageLoading || audioState === 'uploading') return;
     setConfirmAttachment({ type: 'audio', id: audioId });
   };
 
-
   const confirmRemoveAudio = async (audioId: string) => {
-    if (!token || !id) return;
+    if (!token || !task?.remoteId) return;
     setDeletingAttachment(audioId);
     try {
       if (playingKey === audioId) {
@@ -161,7 +183,7 @@ export default function TaskDetail() {
         await player.seekTo(0);
         setPlayingKey(undefined);
       }
-      await attachmentsApi.deleteAudio(token, id, audioId);
+      await attachmentsApi.deleteAudio(token, task.remoteId, audioId);
       setAudios((current) => current.filter((audio) => audio.id !== audioId));
       setFeedback({ message: 'Audio eliminado.', tone: 'success' });
     } catch {
@@ -310,7 +332,7 @@ export default function TaskDetail() {
           {photoUri && <AppImage uri={photoUri} className="w-full h-52 rounded-medium mt-sm" />}
           {images.length === 0 && <StateMessage title="Esta tarea no tiene imágenes." />}
           {images.map((image) => { const status = imageStatuses[image.id] ?? 'loading'; return <Card key={image.id} className="p-md">
-            {status === 'error' ? <StateMessage title="No se pudo cargar la imagen." tone="error" actionTitle="Reintentar" onAction={() => setImageStatuses((current) => ({ ...current, [image.id]: 'loading' }))} /> : <View className="relative"><AppImage key={`${image.id}-${status}`} uri={attachmentsApi.imageFileUrl(id, image.id)} token={token ?? undefined} className="w-full h-52 rounded-medium" onLoadStart={() => setImageStatuses((current) => ({ ...current, [image.id]: 'loading' }))} onLoad={() => setImageStatuses((current) => ({ ...current, [image.id]: 'ready' }))} onError={() => setImageStatuses((current) => ({ ...current, [image.id]: 'error' }))} />{status === 'loading' && <View className="absolute inset-0 items-center justify-center rounded-medium bg-surface"><AppText variant="bodySecondary" muted>Cargando imagen...</AppText></View>}</View>}
+            {status === 'error' ? <StateMessage title="No se pudo cargar la imagen." tone="error" actionTitle="Reintentar" onAction={() => setImageStatuses((current) => ({ ...current, [image.id]: 'loading' }))} /> : <View className="relative"><AppImage key={`${image.id}-${status}`} uri={image.localUri ?? (task.remoteId ? attachmentsApi.imageFileUrl(task.remoteId, image.id) : image.url)} token={image.localUri ? undefined : token ?? undefined} className="w-full h-52 rounded-medium" onLoadStart={() => setImageStatuses((current) => ({ ...current, [image.id]: 'loading' }))} onLoad={() => setImageStatuses((current) => ({ ...current, [image.id]: 'ready' }))} onError={() => setImageStatuses((current) => ({ ...current, [image.id]: 'error' }))} />{status === 'loading' && <View className="absolute inset-0 items-center justify-center rounded-medium bg-surface/70"><AppText variant="caption">Cargando imagen...</AppText></View>}</View>}
             <AppText variant="caption" muted className="mt-sm">{image.filename}</AppText><AppButton title="Eliminar imagen" variant="danger" loading={deletingAttachment === image.id} onPress={() => removeImage(image.id)} disabled={isBusy} />
           </Card>; })}
         </Card>

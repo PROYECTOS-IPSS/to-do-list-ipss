@@ -2307,7 +2307,7 @@
   dependencies:
     "@types/express" "*"
 
-"@types/node@*", "@types/node@^24.3.0":
+"@types/node@*", "@types/node@^24.13.3", "@types/node@^24.3.0":
   version "24.13.3"
   resolved "https://registry.npmjs.org/@types/node/-/node-24.13.3.tgz"
   integrity sha512-Dh8vAsV36ig5wa9OX4pXvMc9D3Veibfw2wix0CUwYODLD8nkj9UsLjASr49nPg+2eKzxhBV+v7L8pXvT4e639Q==
@@ -2669,6 +2669,11 @@ asynckit@^0.4.0:
   version "0.4.0"
   resolved "https://registry.npmjs.org/asynckit/-/asynckit-0.4.0.tgz"
   integrity sha512-Oei9OH4tRh0YqU3GxhX79dM/mwVgvbZJaSNaRk+bshkj0S5cfHcgYakreBjrHwatXKbz+IoIdYLxrKim2MjW0Q==
+
+await-lock@^2.2.2:
+  version "2.2.2"
+  resolved "https://registry.npmjs.org/await-lock/-/await-lock-2.2.2.tgz"
+  integrity sha512-aDczADvlvTGajTDjcjpJMqRkOF6Qdz3YbPZm/PyW6tKPkx2hlYBzxMhEywM/tU72HrVZjgl5VCdRuMlA7pZ8Gw==
 
 "babel-jest@^29.0.0 || ^30.0.0", babel-jest@30.4.1:
   version "30.4.1"
@@ -4125,6 +4130,13 @@ expo-server@^57.0.3:
   version "57.0.3"
   resolved "https://registry.npmjs.org/expo-server/-/expo-server-57.0.3.tgz"
   integrity sha512-aK+LdKzauHSGmsOStZtyxdzv0zWssCkxTw3m4QuOhfDSJsZaMRTd9O41d8ixU/QfELTbaJ0oRNcF7JFV/7O9YQ==
+
+expo-sqlite@~57.0.2:
+  version "57.0.2"
+  resolved "https://registry.npmjs.org/expo-sqlite/-/expo-sqlite-57.0.2.tgz"
+  integrity sha512-5KVbT7BQFZlIcQBXKWvwBERK3ODF6PSqct27GQKukZzAjsx2B97R+mwtYqrTUtUbw71VJrQrdr9Yl2OWYC7UpA==
+  dependencies:
+    await-lock "^2.2.2"
 
 expo-status-bar@~57.0.1:
   version "57.0.1"
@@ -7169,7 +7181,7 @@ react-is@^18.0.0:
   resolved "https://registry.npmjs.org/react-is/-/react-is-18.3.1.tgz"
   integrity sha512-/LLMVyas0ljjAtoYiPqYiL8VWXzUUdThrmU5+n20DZv+a+ClRoevUzw5JxU+Ieh5/c87ytoTBV9G1FiKfNJdmg==
 
-react-is@^19.1.0:
+react-is@^19.1.0, react-is@^19.2.3:
   version "19.2.8"
   resolved "https://registry.npmjs.org/react-is/-/react-is-19.2.8.tgz"
   integrity sha512-s5un28nYxKJw5gvUHyW5PCC28CvBqLu9r3cWgzHT4Vo/5fqqkFcdRYsGcKf50WMPpjjFZS5d76fn3YCo2njKwQ==
@@ -7315,6 +7327,14 @@ react-style-singleton@^2.2.2, react-style-singleton@^2.2.3:
   dependencies:
     get-nonce "^1.0.0"
     tslib "^2.0.0"
+
+react-test-renderer@^19.2.3:
+  version "19.2.3"
+  resolved "https://registry.npmjs.org/react-test-renderer/-/react-test-renderer-19.2.3.tgz"
+  integrity sha512-TMR1LnSFiWZMJkCgNf5ATSvAheTT2NvKIwiVwdBPHxjBI7n/JbWd4gaZ16DVd9foAXdvDz+sB5yxZTwMjPRxpw==
+  dependencies:
+    react-is "^19.2.3"
+    scheduler "^0.27.0"
 
 react@*, "react@^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc", "react@^16.8 || ^17.0 || ^18.0 || ^19.0.0 || ^19.0.0-rc", "react@^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react@^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc", react@^19.2.3, "react@>= 18.2.0", react@>=16, react@>=16.8, react@>=17.0.0, react@>=18, react@19.2.3:
   version "19.2.3"
@@ -8097,6 +8117,7 @@ tailwindcss@^3.4.17, tailwindcss@>3.3.0, tailwindcss@~3:
     expo-location "~57.0.15"
     expo-router "~57.0.18"
     expo-secure-store "~57.0.3"
+    expo-sqlite "~57.0.2"
     expo-status-bar "~57.0.1"
     expo-system-ui "~57.0.3"
     nativewind "4.2.6"
