@@ -84,6 +84,12 @@ export class TaskStore {
   saveRemote(ownerId: string, task: Parameters<LocalTaskRepository['saveRemote']>[1]) {
     return this.repository.saveRemote(ownerId, task);
   }
+  resolveWithRemote(ownerId: string, operationId: string, task: Parameters<LocalTaskRepository['saveRemote']>[1]) {
+    return this.repository.resolveWithRemote(ownerId, operationId, task);
+  }
+  resolveRemoteDeletion(ownerId: string, operationId: string) {
+    return this.repository.resolveRemoteDeletion(ownerId, operationId);
+  }
   listLocalImages(ownerId: string) {
     return this.repository.listLocalImages(ownerId);
   }
@@ -108,5 +114,8 @@ export class TaskStore {
   }
   deleteRemoteConfirmed(ownerId: string, localId: string) {
     return this.repository.deleteRemoteConfirmed(ownerId, localId);
+  }
+  importTasks(ownerId: string, tasks: Parameters<LocalTaskRepository['importTasks']>[1]) {
+    return this.repository.importTasks(ownerId, tasks);
   }
 }

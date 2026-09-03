@@ -69,9 +69,22 @@ const runMutation = async <T>(
 };
 
 export const createTask = async (userId: string, input: CreateTaskInput, idempotencyKey?: string) => {
-  const result = await runMutation(userId, idempotencyKey, 'create', undefined, input, async (db) => ({
-    response: await db.task.create({ data: { ...input, userId } })
-  }));
+  const hasProvenance = input.externalProvider !== undefined && input.externalId !== undefined;
+  const result = await runMutation(userId, idempotencyKey, 'create', undefined, input, async (db) => {
+    if (hasProvenance) {
+      const where = { userId, externalProvider: input.externalProvider, externalId: input.externalId };
+      const existing = await db.task.findFirst({ where });
+      if (existing) return { response: existing };
+
+      // ON CONFLICT DO NOTHING makes different idempotency keys converge atomically.
+      await db.task.createMany({ data: { ...input, userId }, skipDuplicates: true });
+      const task = await db.task.findFirst({ where });
+      if (!task) throw new HttpError(409, 'TASK_PROVENANCE_CONFLICT', 'Task provenance could not be reconciled.');
+      return { response: task };
+    }
+
+    return { response: await db.task.create({ data: { ...input, userId } }) };
+  });
   return result.response;
 };
 

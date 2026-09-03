@@ -6,7 +6,7 @@ import { attachmentsApi } from '../src/services/attachments';
 import { preferences, type TaskFilter } from '../src/services/preferences';
 import { getTaskStore } from '../src/services/local-tasks';
 import type { LocalTask, LocalTaskInput, SyncOperation } from '../src/services/task-repository';
-import { TaskHttpError } from '../src/services/tasks';
+import { TaskHttpError, tasksApi } from '../src/services/tasks';
 import { copyLocalImage, deleteLocalFile } from '../src/services/local-media';
 import type { TaskStore } from '../src/services/task-store';
 import type { TaskLocation } from '../src/services/location-validation';
@@ -44,6 +44,7 @@ export default function Index() {
   const [taskImageUrls, setTaskImageUrls] = useState<Record<string, string>>({});
   const [syncing, setSyncing] = useState(false);
   const [resolvingOperationId, setResolvingOperationId] = useState<string>();
+  const [remoteConflictTasks, setRemoteConflictTasks] = useState<Record<string, { title: string; version: number }>>({});
   const [syncOperations, setSyncOperations] = useState<SyncOperation[]>([]);
   const [taskStore, setTaskStore] = useState<TaskStore | null>(null);
   const editingTask = tasks.find((item) => item.localId === editingId);
@@ -120,6 +121,26 @@ export default function Index() {
     }
   }, [loadTasks, resolvingOperationId, token, user]);
   useEffect(() => {
+    if (!token || syncOperations.length === 0) { setRemoteConflictTasks({}); return; }
+    let active = true;
+    void Promise.all(syncOperations.map(async (operation) => {
+      const task = tasks.find((item) => item.localId === operation.taskLocalId);
+      if (!task?.remoteId) return null;
+      try {
+        const remote = await tasksApi.get(token, task.remoteId);
+        return [operation.operationId, { title: remote.title, version: remote.version }] as const;
+      } catch {
+        return null;
+      }
+    })).then((entries) => {
+      if (!active) return;
+      const next: Record<string, { title: string; version: number }> = {};
+      entries.forEach((entry) => { if (entry) next[entry[0]] = entry[1]; });
+      setRemoteConflictTasks(next);
+    });
+    return () => { active = false; };
+  }, [syncOperations, tasks, token]);
+  useEffect(() => {
     if (!user || tasks.length === 0) { setTaskImageUrls({}); return; }
     let active = true;
     void getTaskStore().then(async (store) => {
@@ -195,6 +216,7 @@ export default function Index() {
       if (result.pending) setFeedback({ message: result.source === 'uncertain' ? 'Guardada localmente; resultado remoto incierto. Pendiente de sincronización.' : 'Guardada localmente. Pendiente de sincronización.', tone: 'info' });
       else setFeedback({ message: wasEditing ? 'Tarea actualizada.' : 'Tarea creada.', tone: 'success' });
     } catch (error) {
+      if (error instanceof TaskHttpError && error.statusCode === 409) void loadTasks();
       if (error instanceof TaskHttpError) setFeedback({ message: `El servidor rechazó la operación (${error.statusCode}). No se guardó localmente.`, tone: 'error' });
       else setFeedback({ message: 'No se pudo guardar la tarea localmente. Inténtalo de nuevo.', tone: 'error' });
     } finally {
@@ -210,6 +232,7 @@ export default function Index() {
       const updatedTask = result.task;
       if (updatedTask) setTasks((current) => current.map((item) => item.localId === updatedTask.localId ? updatedTask : item));
     } catch (error) {
+      if (error instanceof TaskHttpError && error.statusCode === 409) void loadTasks();
       setFeedback({ message: error instanceof TaskHttpError ? `El servidor rechazó la operación (${error.statusCode}).` : 'No se pudo actualizar la tarea. Inténtalo de nuevo.', tone: 'error' });
     } finally {
       setUpdatingId(undefined);
@@ -232,6 +255,7 @@ export default function Index() {
       setTasks((current) => current.filter((task) => task.localId !== id));
       setFeedback({ message: result.pending ? 'Eliminación guardada localmente. Pendiente de sincronización.' : 'Tarea eliminada.', tone: result.pending ? 'info' : 'success' });
     } catch (error) {
+      if (error instanceof TaskHttpError && error.statusCode === 409) void loadTasks();
       setFeedback({ message: error instanceof TaskHttpError ? `El servidor rechazó la operación (${error.statusCode}).` : 'No se pudo eliminar la tarea. Inténtalo de nuevo.', tone: 'error' });
     } finally {
       setDeletingId(undefined);
@@ -257,6 +281,7 @@ export default function Index() {
       ListHeaderComponent={<View>
         <View className="flex-row items-start justify-between mb-lg"><View className="flex-row items-center gap-md flex-1"><AppLogo compact /><View className="flex-1"><AppText variant="caption" muted>Hola{authenticatedUser.name ? `, ${authenticatedUser.name}` : ''}</AppText><AppText variant="display">Task desk</AppText><AppText variant="bodySecondary" muted>Organiza tu día con calma.</AppText></View></View><AppButton title="Cerrar sesión" variant="ghost" loading={loggingOut} onPress={() => void handleLogout()} accessibilityLabel="Cerrar sesión" /></View>
         <View className="flex-row items-center justify-between mb-md"><AppBadge label="Tu espacio" tone="accent" /><AppFeedback message={feedback?.message} tone={feedback?.tone} /></View>
+        <AppButton title="Importar tareas" variant="secondary" onPress={() => router.push('/import' as never)} accessibilityLabel="Importar tareas de demostración" />
         <View className="flex-row gap-sm mb-lg">
           <Card className="flex-1 p-md"><AppText variant="heading">{taskSummary.total}</AppText><AppText variant="caption" muted>Total</AppText></Card>
           <Card className="flex-1 p-md"><AppText variant="heading" className="text-warning">{taskSummary.active}</AppText><AppText variant="caption" muted>Pendientes</AppText></Card>
@@ -276,10 +301,12 @@ export default function Index() {
         <View className="flex-row items-center justify-between mb-sm"><AppText variant="title">Tus tareas</AppText><AppButton title={syncing ? 'Sincronizando...' : 'Sincronizar'} variant="ghost" onPress={() => void synchronize(true)} disabled={syncing || accessMode !== 'remote' || !token} /></View>
         {syncOperations.map((operation) => {
           const task = tasks.find((item) => item.localId === operation.taskLocalId);
+          const remote = remoteConflictTasks[operation.operationId];
           const resolving = resolvingOperationId === operation.operationId;
           return <Card key={operation.operationId} className="border-warning">
             <AppText variant="heading">{operation.state === 'conflict' ? 'Conflicto por resolver' : 'Revisión necesaria'}</AppText>
             <AppText variant="bodySecondary" muted>{task?.title ?? 'Tarea local'}{operation.lastError ? ` · ${operation.lastError}` : ''}</AppText>
+            {remote && <AppText variant="caption" muted>Servidor: {remote.title} · versión {remote.version}</AppText>}
             {operation.state === 'conflict' && <View className="mt-sm">
               <AppButton title="Usar versión del servidor" variant="secondary" loading={resolving} disabled={Boolean(resolvingOperationId)} onPress={() => void resolveConflict(operation.operationId, 'server')} />
               <AppButton title="Conservar mis cambios" variant="ghost" loading={resolving} disabled={Boolean(resolvingOperationId)} onPress={() => void resolveConflict(operation.operationId, 'local')} />
@@ -290,11 +317,6 @@ export default function Index() {
           <AppButton title={filter === 'all' ? 'Todas ✓' : 'Todas'} variant={filter === 'all' ? 'secondary' : 'ghost'} onPress={() => setFilter('all')} accessibilityLabel="Mostrar todas las tareas" className="flex-1" />
           <AppButton title={filter === 'active' ? 'Pendientes ✓' : 'Pendientes'} variant={filter === 'active' ? 'secondary' : 'ghost'} onPress={() => setFilter('active')} accessibilityLabel="Mostrar tareas pendientes" className="flex-1" />
           <AppButton title={filter === 'completed' ? 'Completadas ✓' : 'Completadas'} variant={filter === 'completed' ? 'secondary' : 'ghost'} onPress={() => setFilter('completed')} accessibilityLabel="Mostrar tareas completadas" className="flex-1" />
-        {syncOperations.map((operation) => <Card key={operation.operationId} className="p-md mb-sm">
-          <AppText variant="label">{operation.state === 'review' ? 'Resultado anterior requiere revisión' : 'Conflicto de sincronización'}</AppText>
-          <AppText variant="caption" muted className="mt-xs">{tasks.find((task) => task.localId === operation.taskLocalId)?.title ?? 'Tarea no disponible'}</AppText>
-          {operation.state === 'conflict' && <View className="flex-row gap-sm mt-sm"><AppButton title="Usar servidor" variant="secondary" onPress={() => void resolveConflict(operation.operationId, 'server')} disabled={Boolean(resolvingOperationId)} /><AppButton title="Conservar mis cambios" variant="ghost" onPress={() => void resolveConflict(operation.operationId, 'local')} disabled={Boolean(resolvingOperationId)} /></View>}
-        </Card>)}
         </View>
         {loading && <StateMessage title="Cargando tareas..." />}
         {error && <StateMessage title={error} tone="error" actionTitle="Reintentar" onAction={() => void loadTasks()} />}

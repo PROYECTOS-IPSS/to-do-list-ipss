@@ -29,6 +29,8 @@ model Task {
   longitude         Float?
   locationAccuracy  Float?
   locationTimestamp DateTime?
+  externalProvider  String?
+  externalId        String?
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
   version           Int         @default(0)
@@ -37,6 +39,7 @@ model Task {
   audios            TaskAudio[]
 
   @@index([userId])
+  @@unique([userId, externalProvider, externalId])
 }
 
 model TaskMutation {
