@@ -1,22 +1,23 @@
 {
   "name": "task-manager-workspace",
   "private": true,
+  "packageManager": "yarn@1.22.22",
   "workspaces": [
     "mobile",
     "backend"
   ],
   "scripts": {
-    "mobile": "npm --workspace mobile start",
-    "mobile:dev-client": "npm --workspace mobile run start:dev-client",
-    "backend": "npm --workspace backend run dev",
-    "backend:start": "npm --workspace backend start",
-    "typecheck": "npm --workspace mobile run typecheck && npm --workspace backend run typecheck",
-    "prisma:generate": "npm --workspace backend run prisma:generate",
-    "prisma:migrate": "npm --workspace backend run prisma:migrate",
-    "test:backend": "npm --workspace backend test",
-    "test:mobile": "npm --workspace mobile test",
-    "test": "npm run test:backend && npm run test:mobile",
-    "lint": "eslint ."
+    "mobile": "yarn workspace task-manager-mobile start",
+    "mobile:dev-client": "yarn workspace task-manager-mobile start:dev-client",
+    "backend": "yarn workspace task-manager-backend run dev",
+    "backend:start": "yarn workspace task-manager-backend start",
+    "typecheck": "yarn workspace task-manager-mobile typecheck && yarn workspace task-manager-backend typecheck",
+    "prisma:generate": "yarn workspace task-manager-backend prisma:generate",
+    "prisma:migrate": "yarn workspace task-manager-backend prisma:migrate",
+    "test:backend": "yarn workspace task-manager-backend test",
+    "test:mobile": "yarn workspace task-manager-mobile test",
+    "test": "yarn test:backend && yarn test:mobile",
+    "lint": "eslint --ignore-pattern .yarn --ignore-pattern mobile/dist ."
   },
   "devDependencies": {
     "@eslint/js": "^9.33.0",

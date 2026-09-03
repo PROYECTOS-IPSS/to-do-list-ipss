@@ -1,4 +1,4 @@
-import { fetchJsonPlaceholderTodos, JsonPlaceholderCancelledError, JsonPlaceholderHttpError, JsonPlaceholderResponseTooLargeError, JsonPlaceholderTimeoutError, JsonPlaceholderValidationError, JSONPLACEHOLDER_TODOS_URL } from '../jsonplaceholder-adapter';
+import { fetchJsonPlaceholderTodos, JsonPlaceholderCancelledError, JsonPlaceholderResponseTooLargeError, JsonPlaceholderTimeoutError, JsonPlaceholderValidationError, JSONPLACEHOLDER_TODOS_URL } from '../jsonplaceholder-adapter';
 
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 const good = { userId: 1, id: 1, title: 'one', completed: false };
