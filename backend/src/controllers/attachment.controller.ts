@@ -2,10 +2,22 @@ import type { RequestHandler } from 'express';
 import * as attachmentService from '../services/attachment.service';
 import { HttpError } from '../utils/errors';
 
+const idempotencyKey = (value: string | undefined) => {
+  if (value === undefined) return undefined;
+  const key = value.trim();
+  if (!key || key.length > 255) throw new HttpError(400, 'INVALID_IDEMPOTENCY_KEY', 'Idempotency-Key must be between 1 and 255 characters.');
+  return key;
+};
+
 export const createImage: RequestHandler = async (request, response, next) => {
   try {
     if (!request.file) throw new HttpError(400, 'IMAGE_FILE_REQUIRED', 'Image file is required.');
-    response.status(201).json(await attachmentService.createImage(request.userId, request.params.id as string, request.file));
+    response.status(201).json(await attachmentService.createImage(
+      request.userId,
+      request.params.id as string,
+      request.file,
+      idempotencyKey(request.get('Idempotency-Key'))
+    ));
   } catch (error) { next(error); }
 };
 

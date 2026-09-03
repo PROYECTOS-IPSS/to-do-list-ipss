@@ -70,7 +70,7 @@ class FailOnRunNumber implements SqliteExecutor {
 const task = (id: string, title: string): Task => ({
   id, title, description: null, completed: false,
   latitude: null, longitude: null, locationAccuracy: null, locationTimestamp: null,
-  createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z'
+  createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', version: 0
 });
 const input: LocalTaskInput = {
   title: 'Tarea local', description: 'Sin conexión', completed: false,
@@ -171,5 +171,29 @@ describe('LocalTaskRepository on real SQLite', () => {
     const alice = await repository.createOffline('alice', input);
     await expect(repository.saveLocalImage('bob', alice.localId, 'file:///leak.jpg')).rejects.toThrow('not found');
     expect(await repository.listLocalImages('alice')).toHaveLength(0);
+  });
+  it('persists stable operation metadata across reopening', async () => {
+    const stored = await repository.createOffline('user-a', input);
+    const operation = await repository.enqueueOperation('user-a', stored.localId, 'create', JSON.stringify(input));
+    expect(operation.state).toBe('pending');
+    const retryAt = '2026-01-01T00:00:05.000Z';
+    await repository.updateOperation('user-a', operation.operationId, 'pending', 'Network unavailable.', retryAt);
+    database.close();
+    database = new DatabaseSync(join(directory, 'tasks.sqlite'));
+    repository = new LocalTaskRepository(new NodeSqliteExecutor(database));
+    await repository.initialize();
+    expect(await repository.listOperations('user-a')).toEqual([expect.objectContaining({ operationId: operation.operationId, payload: JSON.stringify(input), state: 'pending', retryAfterAt: retryAt })]);
+  });
+
+  it('rebases a conflict into a new operation without replacing local changes', async () => {
+    const stored = await repository.saveRemote('user-a', { ...task('remote-4', 'Servidor'), version: 3 });
+    const edited = await repository.updateOffline('user-a', stored.localId, { title: 'Mi cambio' });
+    const operation = await repository.enqueueOperation('user-a', edited.localId, 'update', JSON.stringify({ title: 'Mi cambio' }), '3');
+    await repository.updateOperation('user-a', operation.operationId, 'conflict', 'Version conflict.');
+
+    const replacement = await repository.requeueOperation('user-a', operation.operationId, 4);
+    expect(replacement).toMatchObject({ taskLocalId: edited.localId, kind: 'update', expectedVersion: '4', state: 'pending' });
+    expect(await repository.find('user-a', edited.localId)).toMatchObject({ title: 'Mi cambio', remoteVersion: 4, syncState: 'pending_update', remoteOutcome: 'none' });
+    expect(await repository.listOperations('user-a')).toEqual([expect.objectContaining({ operationId: replacement.operationId, state: 'pending' })]);
   });
 });

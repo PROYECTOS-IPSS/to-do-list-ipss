@@ -1,14 +1,24 @@
 import request from 'supertest';
 import { app } from '../src/server';
+import * as attachmentService from '../src/services/attachment.service';
 import { prisma } from '../src/config/prisma';
 import { signToken } from '../src/utils/auth';
 import { MAX_AUDIO_SIZE_BYTES } from '../src/schemas/attachment.schemas';
+import { removeFile, saveFile } from '../src/services/file-storage.service';
+
+jest.mock('../src/services/file-storage.service', () => ({
+  saveFile: jest.fn(),
+  removeFile: jest.fn(),
+  filePath: jest.fn()
+}));
 
 jest.mock('../src/config/prisma', () => ({
   prisma: {
     task: { findFirst: jest.fn() },
     taskImage: { create: jest.fn(), findMany: jest.fn(), findFirst: jest.fn(), delete: jest.fn() },
-    taskAudio: { create: jest.fn(), findMany: jest.fn(), findFirst: jest.fn(), delete: jest.fn() }
+    taskAudio: { create: jest.fn(), findMany: jest.fn(), findFirst: jest.fn(), delete: jest.fn() },
+    taskMutation: { findUnique: jest.fn(), create: jest.fn() },
+    $transaction: jest.fn()
   }
 }));
 
@@ -19,7 +29,12 @@ const auth = { Authorization: `Bearer ${token}` };
 const image = { id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', taskId: task.id, url: '/uploads/images/test.jpg', filename: 'test.jpg', mimeType: 'image/jpeg', size: 3 };
 const audio = { id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', taskId: task.id, url: '/uploads/audios/test.m4a', duration: 2.5, mimeType: 'audio/mp4', size: 3, createdAt: new Date() };
 
-beforeEach(() => { jest.clearAllMocks(); jest.mocked(prisma.task.findFirst).mockResolvedValue(task as never); });
+beforeEach(() => {
+  jest.clearAllMocks();
+  jest.mocked(prisma.task.findFirst).mockResolvedValue(task as never);
+  jest.mocked(prisma.$transaction).mockImplementation(async (callback) => callback(prisma as never));
+  jest.mocked(saveFile).mockResolvedValue({ filename: 'stored.jpg', url: '/uploads/images/stored.jpg' });
+});
 
 describe('attachments', () => {
   it('rejects unauthenticated image and audio access', async () => {
@@ -33,6 +48,101 @@ describe('attachments', () => {
     const upload = await request(app).post(`/api/tasks/${task.id}/images`).set(auth).attach('file', Buffer.from('jpg'), { filename: 'test.jpg', contentType: 'image/jpeg' });
     expect(upload.status).toBe(201);
     expect((await request(app).get(`/api/tasks/${task.id}/images`).set(auth)).body).toHaveLength(1);
+  });
+
+  it('replays image upload by user key and rejects changed content', async () => {
+    jest.mocked(prisma.taskImage.create).mockResolvedValue(image as never);
+    jest.mocked(prisma.taskMutation.findUnique)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+
+    const first = await request(app)
+      .post(`/api/tasks/${task.id}/images`)
+      .set(auth)
+      .set('Idempotency-Key', 'image-1')
+      .attach('file', Buffer.from('jpg'), { filename: 'test.jpg', contentType: 'image/jpeg' });
+    const record = {
+      requestHash: jest.mocked(prisma.taskMutation.create).mock.calls[0]?.[0].data.requestHash,
+      responseBody: image
+    };
+    jest.mocked(prisma.taskMutation.findUnique).mockResolvedValue(record as never);
+
+    const replay = await request(app)
+      .post(`/api/tasks/${task.id}/images`)
+      .set(auth)
+      .set('Idempotency-Key', 'image-1')
+      .attach('file', Buffer.from('jpg'), { filename: 'renamed.png', contentType: 'image/png' });
+    const mismatch = await request(app)
+      .post(`/api/tasks/${task.id}/images`)
+      .set(auth)
+      .set('Idempotency-Key', 'image-1')
+      .attach('file', Buffer.from('different'), { filename: 'test.jpg', contentType: 'image/jpeg' });
+
+    expect(first.status).toBe(201);
+    expect(replay.status).toBe(201);
+    expect(replay.body.id).toBe(first.body.id);
+    expect(mismatch.status).toBe(409);
+    expect(mismatch.body.error.code).toBe('IDEMPOTENCY_KEY_REUSED');
+    expect(jest.mocked(prisma.taskImage.create).mock.calls[0]?.[0].data.contentHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(saveFile).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns one logical image when same key registers concurrently', async () => {
+    const file = {
+      buffer: Buffer.from('jpg'),
+      originalname: 'test.jpg',
+      mimetype: 'image/jpeg',
+      size: 3
+    } as Express.Multer.File;
+    let record: { requestHash: string; responseBody: typeof image } | undefined;
+    jest.mocked(prisma.taskImage.create).mockResolvedValue(image as never);
+    jest.mocked(prisma.taskMutation.findUnique).mockImplementation((async () => record) as never);
+    jest.mocked(prisma.taskMutation.create).mockImplementation((async ({ data }: { data: { requestHash: string } }) => {
+      if (record) throw Object.assign(new Error('duplicate key'), { code: 'P2002' });
+      record = { requestHash: data.requestHash, responseBody: image };
+      return record;
+    }) as never);
+
+    const [first, second] = await Promise.all([
+      attachmentService.createImage(user.id, task.id, file, 'concurrent-image'),
+      attachmentService.createImage(user.id, task.id, file, 'concurrent-image')
+    ]);
+
+    expect((first as typeof image).id).toBe(image.id);
+    expect((second as typeof image).id).toBe(image.id);
+    expect(prisma.taskMutation.create).toHaveBeenCalledTimes(2);
+    expect(removeFile).toHaveBeenCalledWith('/uploads/images/stored.jpg');
+  });
+
+  it('cleans stored image when metadata registration fails', async () => {
+    jest.mocked(prisma.taskImage.create).mockRejectedValueOnce(new Error('db unavailable'));
+    const response = await request(app)
+      .post(`/api/tasks/${task.id}/images`)
+      .set(auth)
+      .attach('file', Buffer.from('jpg'), { filename: 'test.jpg', contentType: 'image/jpeg' });
+
+    expect(response.status).toBe(500);
+    expect(removeFile).toHaveBeenCalledWith('/uploads/images/stored.jpg');
+  });
+
+  it('validates idempotency key and task ownership before storage', async () => {
+    const invalid = await request(app)
+      .post(`/api/tasks/${task.id}/images`)
+      .set(auth)
+      .set('Idempotency-Key', ' ')
+      .attach('file', Buffer.from('jpg'), { filename: 'test.jpg', contentType: 'image/jpeg' });
+    jest.mocked(prisma.task.findFirst).mockResolvedValue(null);
+    const foreign = await request(app)
+      .post(`/api/tasks/${task.id}/images`)
+      .set(auth)
+      .set('Idempotency-Key', 'image-foreign')
+      .attach('file', Buffer.from('jpg'), { filename: 'test.jpg', contentType: 'image/jpeg' });
+
+    expect(invalid.status).toBe(400);
+    expect(invalid.body.error.code).toBe('INVALID_IDEMPOTENCY_KEY');
+    expect(foreign.status).toBe(404);
+    expect(saveFile).not.toHaveBeenCalled();
+    expect(prisma.taskMutation.findUnique).not.toHaveBeenCalled();
   });
 
   it('rejects invalid image mime and missing task', async () => {

@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Image, View } from 'react-native';
+import { AppState, FlatList, Image, View } from 'react-native';
 import { Redirect, useRouter } from 'expo-router';
 import { useAuth } from '../src/auth/AuthProvider';
 import { attachmentsApi } from '../src/services/attachments';
 import { preferences, type TaskFilter } from '../src/services/preferences';
 import { getTaskStore } from '../src/services/local-tasks';
-import type { LocalTask, LocalTaskInput } from '../src/services/task-repository';
+import type { LocalTask, LocalTaskInput, SyncOperation } from '../src/services/task-repository';
 import { TaskHttpError } from '../src/services/tasks';
 import { copyLocalImage, deleteLocalFile } from '../src/services/local-media';
 import type { TaskStore } from '../src/services/task-store';
 import type { TaskLocation } from '../src/services/location-validation';
 import { AppBadge, AppButton, AppConfirmModal, AppFeedback, AppInput, AppLogo, AppText, Card, Screen, StateMessage, TaskCard } from '../src/ui/components';
-import { locationInput, useTaskComposer } from '../src/services/task-composer';
+import { useTaskComposer } from '../src/services/task-composer';
+import { syncService } from '../src/services/sync-service';
 
 
 const taskLocation = (task: LocalTask): TaskLocation | undefined => {
@@ -41,10 +42,18 @@ export default function Index() {
   const [confirmTaskId, setConfirmTaskId] = useState<string>();
   const [feedback, setFeedback] = useState<{ message: string; tone: 'success' | 'error' | 'info' }>();
   const [taskImageUrls, setTaskImageUrls] = useState<Record<string, string>>({});
+  const [syncing, setSyncing] = useState(false);
+  const [resolvingOperationId, setResolvingOperationId] = useState<string>();
+  const [syncOperations, setSyncOperations] = useState<SyncOperation[]>([]);
   const [taskStore, setTaskStore] = useState<TaskStore | null>(null);
   const editingTask = tasks.find((item) => item.localId === editingId);
   const { locationLoading, photoLoading, attachLocation, removeLocation, attachPhoto } = useTaskComposer({ token, accessMode, ownerId: user?.id ?? null, taskStore, task: editingTask, saving, setTasks, setLocation, setPhotoUri, setPhotoPending, setFeedback });
   const loadVersion = useRef(0);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   useEffect(() => () => { loadVersion.current += 1; }, []);
 
   const loadTasks = useCallback(async () => {
@@ -57,8 +66,10 @@ export default function Index() {
       if (version !== loadVersion.current) return;
       setTaskStore(store);
       const result = await store.load(user.id, accessMode, token);
+      const operations = await store.listOperations(user.id);
       if (version !== loadVersion.current) return;
       setTasks(result.tasks);
+      setSyncOperations(operations.filter((operation) => operation.state === 'conflict' || operation.state === 'review'));
       if (result.source === 'local' && accessMode === 'remote') setFeedback({ message: 'Sin conexión: mostrando datos locales. Los cambios quedan pendientes.', tone: 'info' });
     } catch (error) {
       if (version !== loadVersion.current) return;
@@ -69,6 +80,45 @@ export default function Index() {
   }, [accessMode, token, user]);
 
   useEffect(() => { void loadTasks(); }, [loadTasks]);
+  const synchronize = useCallback(async (manual = false) => {
+    if (!user || !token || accessMode !== 'remote' || syncing) return;
+    const version = loadVersion.current;
+    setSyncing(true);
+    try {
+      const result = await syncService.run(user.id, token, accessMode, { force: manual });
+      if (!mounted.current || version !== loadVersion.current) return;
+      setFeedback({ message: result.failed || result.conflicts || result.review ? 'Sincronización requiere revisión.' : 'Sincronización completada.', tone: result.failed || result.conflicts || result.review ? 'info' : 'success' });
+      await loadTasks();
+    } catch {
+      if (mounted.current && version === loadVersion.current) setFeedback({ message: 'No se pudo sincronizar. Los cambios locales se conservaron.', tone: 'error' });
+    } finally {
+      if (mounted.current) setSyncing(false);
+    }
+  }, [accessMode, loadTasks, syncing, token, user]);
+  useEffect(() => {
+    const previousState = { current: AppState.currentState };
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      const wasAway = previousState.current === 'background' || previousState.current === 'inactive';
+      previousState.current = nextState;
+      if (wasAway && nextState === 'active') void synchronize();
+    });
+    return () => subscription.remove();
+  }, [synchronize]);
+  const resolveConflict = useCallback(async (operationId: string, resolution: 'server' | 'local') => {
+    if (!user || !token || resolvingOperationId) return;
+    const version = loadVersion.current;
+    setResolvingOperationId(operationId);
+    try {
+      await syncService.resolveConflict(user.id, token, operationId, resolution);
+      if (!mounted.current || version !== loadVersion.current) return;
+      setFeedback({ message: resolution === 'server' ? 'Se usó la versión del servidor.' : 'Tus cambios quedaron pendientes de sincronización.', tone: 'success' });
+      await loadTasks();
+    } catch {
+      if (mounted.current) setFeedback({ message: 'No se pudo resolver el conflicto. Tus cambios locales se conservaron.', tone: 'error' });
+    } finally {
+      if (mounted.current) setResolvingOperationId(undefined);
+    }
+  }, [loadTasks, resolvingOperationId, token, user]);
   useEffect(() => {
     if (!user || tasks.length === 0) { setTaskImageUrls({}); return; }
     let active = true;
@@ -120,13 +170,13 @@ export default function Index() {
     setSaving(true);
     setError(undefined);
     const wasEditing = Boolean(editingId);
+    const taskToUpdate = editingTask;
     try {
       const input: LocalTaskInput = {
         title: title.trim(), description: description.trim() || null, completed: editingTask?.completed ?? false,
         latitude: location?.latitude ?? null, longitude: location?.longitude ?? null,
         locationAccuracy: location?.accuracy ?? null, locationTimestamp: location?.timestamp ?? null
       };
-      const taskToUpdate = editingTask;
       if (editingId && !taskToUpdate) throw new Error('La tarea que intentas editar ya no está disponible.');
       const result = editingId && taskToUpdate ? await taskStore.update(ownerId, accessMode, token, taskToUpdate, input) : await taskStore.create(ownerId, accessMode, token, input);
       const savedTask = result.task;
@@ -134,7 +184,7 @@ export default function Index() {
       setTasks((current) => wasEditing ? current.map((item) => item.localId === savedTask.localId ? savedTask : item) : [savedTask, ...current]);
       if (photoPending && photoUri) {
         if (result.source === 'remote' && savedTask.remoteId && token) {
-          try { await attachmentsApi.uploadImage(token, savedTask.remoteId, photoUri); }
+          try { await attachmentsApi.uploadImage(token, savedTask.remoteId, photoUri, `image-${savedTask.localId}-${photoUri}`); }
           catch { setFeedback({ message: 'La tarea se guardó, pero no se pudo subir la imagen.', tone: 'error' }); }
         } else {
           const localUri = await copyLocalImage(ownerId, savedTask.localId, photoUri);
@@ -223,11 +273,28 @@ export default function Index() {
           {photoUri && <Card className="p-md"><Image source={{ uri: photoUri }} className="w-full h-[180px] rounded-medium" /><AppButton title="Quitar vista previa" variant="ghost" onPress={() => { setPhotoUri(undefined); setPhotoPending(false); }} disabled={saving} /></Card>}
           <AppButton title={editingId ? 'Guardar cambios' : 'Añadir tarea'} loading={saving} onPress={() => void saveTask()} disabled={!title.trim()} accessibilityLabel={editingId ? 'Guardar cambios de la tarea' : 'Crear tarea'} />
         </Card>
-        <View className="flex-row items-center justify-between mb-sm"><AppText variant="title">Tus tareas</AppText><AppText variant="caption" muted>{visibleTasks.length} visibles</AppText></View>
+        <View className="flex-row items-center justify-between mb-sm"><AppText variant="title">Tus tareas</AppText><AppButton title={syncing ? 'Sincronizando...' : 'Sincronizar'} variant="ghost" onPress={() => void synchronize(true)} disabled={syncing || accessMode !== 'remote' || !token} /></View>
+        {syncOperations.map((operation) => {
+          const task = tasks.find((item) => item.localId === operation.taskLocalId);
+          const resolving = resolvingOperationId === operation.operationId;
+          return <Card key={operation.operationId} className="border-warning">
+            <AppText variant="heading">{operation.state === 'conflict' ? 'Conflicto por resolver' : 'Revisión necesaria'}</AppText>
+            <AppText variant="bodySecondary" muted>{task?.title ?? 'Tarea local'}{operation.lastError ? ` · ${operation.lastError}` : ''}</AppText>
+            {operation.state === 'conflict' && <View className="mt-sm">
+              <AppButton title="Usar versión del servidor" variant="secondary" loading={resolving} disabled={Boolean(resolvingOperationId)} onPress={() => void resolveConflict(operation.operationId, 'server')} />
+              <AppButton title="Conservar mis cambios" variant="ghost" loading={resolving} disabled={Boolean(resolvingOperationId)} onPress={() => void resolveConflict(operation.operationId, 'local')} />
+            </View>}
+          </Card>;
+        })}
         <View className="flex-row gap-xs mb-md">
           <AppButton title={filter === 'all' ? 'Todas ✓' : 'Todas'} variant={filter === 'all' ? 'secondary' : 'ghost'} onPress={() => setFilter('all')} accessibilityLabel="Mostrar todas las tareas" className="flex-1" />
           <AppButton title={filter === 'active' ? 'Pendientes ✓' : 'Pendientes'} variant={filter === 'active' ? 'secondary' : 'ghost'} onPress={() => setFilter('active')} accessibilityLabel="Mostrar tareas pendientes" className="flex-1" />
           <AppButton title={filter === 'completed' ? 'Completadas ✓' : 'Completadas'} variant={filter === 'completed' ? 'secondary' : 'ghost'} onPress={() => setFilter('completed')} accessibilityLabel="Mostrar tareas completadas" className="flex-1" />
+        {syncOperations.map((operation) => <Card key={operation.operationId} className="p-md mb-sm">
+          <AppText variant="label">{operation.state === 'review' ? 'Resultado anterior requiere revisión' : 'Conflicto de sincronización'}</AppText>
+          <AppText variant="caption" muted className="mt-xs">{tasks.find((task) => task.localId === operation.taskLocalId)?.title ?? 'Tarea no disponible'}</AppText>
+          {operation.state === 'conflict' && <View className="flex-row gap-sm mt-sm"><AppButton title="Usar servidor" variant="secondary" onPress={() => void resolveConflict(operation.operationId, 'server')} disabled={Boolean(resolvingOperationId)} /><AppButton title="Conservar mis cambios" variant="ghost" onPress={() => void resolveConflict(operation.operationId, 'local')} disabled={Boolean(resolvingOperationId)} /></View>}
+        </Card>)}
         </View>
         {loading && <StateMessage title="Cargando tareas..." />}
         {error && <StateMessage title={error} tone="error" actionTitle="Reintentar" onAction={() => void loadTasks()} />}

@@ -285,6 +285,6 @@ No implementar:
 - `any`, `@ts-ignore` o `@ts-nocheck` para ocultar errores;
 - APIs nuevas no solicitadas;
 - cambios de esquema o migraciones sin autorización;
-- colas ejecutoras, sincronización automática ni resolución de conflictos (P3); persistencia SQLite local offline por usuario sí está implementada.
+- No implementar sincronización automática en background ni resolver conflictos silenciosamente; sincronización manual P3 usa operaciones idempotentes y versión remota.
 - background location/recording;
 - otra etapa automáticamente al terminar una tarea.
