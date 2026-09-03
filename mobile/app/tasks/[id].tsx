@@ -131,7 +131,7 @@ export default function TaskDetail() {
         const file = await store.saveLocalImage(user.id, task.localId, uri);
         setImages((current) => [{ id: file.id, filename: 'Fotografía local', url: uri, mimeType: 'image/*', size: 0, createdAt: file.createdAt, localUri: uri }, ...current]);
       } else {
-        const image = await attachmentsApi.uploadImage(token, task.remoteId, photo.uri);
+        const image = await attachmentsApi.uploadImage(token, task.remoteId, photo.uri, `image-${task.localId}-${photo.uri}`);
         setImages((current) => [image, ...current]);
       }
       setPhotoUri(photo.uri);

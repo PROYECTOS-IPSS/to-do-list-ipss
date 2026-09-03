@@ -7,8 +7,7 @@
 No se reprodujo ejecución roja previa: las brechas eran cobertura ausente, no fallo confirmado.
 
 ## Corrección aplicada
-
-`LocalTaskRepository.saveLocalImage` ahora valida dentro de la transacción que tarea y `ownerId` coinciden antes de escribir metadata. Evita asociar metadata a una tarea ajena o inexistente. No se tocó backend ni se añadió sincronización.
+`LocalTaskRepository.saveLocalImage` valida dentro de la transacción que tarea y `ownerId` coinciden antes de escribir metadata. Corrección funcional confirmada. P3 añade ahora operaciones persistentes e idempotencia remota; este documento conserva evidencia P2.1.
 
 ## Modelo verificado
 
@@ -20,7 +19,7 @@ No se reprodujo ejecución roja previa: las brechas eran cobertura ausente, no f
 | Eliminar remota | `pending_delete`, oculta de lista activa | `pending_delete`, `unknown` | No fallback |
 | Eliminar solo local | borrado físico, sin delete remoto | no aplica | no aplica |
 
-Carga remota usa `preservePending`; no pisa ediciones pendientes ni resucita `pending_delete`. No existe envío automático, cola ni reintento.
+Carga remota usa `preservePending`; no pisa ediciones pendientes ni resucita `pending_delete`. P3 agrega ejecución manual protegida; no hay ejecución en background.
 
 ## Escenarios y nivel
 
@@ -62,8 +61,8 @@ Provider real conserva identidad local validada en SecureStore, separa `accessMo
 
 Las fotos offline se copian a `Paths.document` bajo directorio por usuario y tarea; metadata queda en `task_files`. Fallo de copia ocurre antes del insert de metadata. La prueba de metadata es SQLite real; copia/borrado físico sigue pendiente en Android. No hay subida automática.
 
-## Bloqueos y P3
+## Relación con P3
 
-Pendiente: exportación Android, compilación debug local y prueba con Development Build que incluya `expo-sqlite`; depende del entorno nativo/dispositivo. P3 debe respetar `remote_outcome=unknown`, no reenviar automáticamente operaciones inciertas sin política explícita, mantener filtros por `ownerId`, preservar pendientes y no convertir HTTP explícito en éxito local.
+La exportación Android quedó aprobada en P2.1 mediante `npx expo export --platform android`. La compilación debug y prueba física requieren Development Build reconstruido con `expo-sqlite`.
 
-No hay defecto confirmado de persistencia o aislamiento que impida comenzar P3. Sincronización, colas y resolución de conflictos siguen fuera de P2.1.
+P3 conserva `remote_outcome=unknown` heredado sin reenviarlo automáticamente; nuevas operaciones usan identidad idempotente. Sincronización, conflictos y reintentos están documentados en `P3_SYNC_IMPLEMENTATION.md`.

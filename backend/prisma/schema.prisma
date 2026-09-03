@@ -16,6 +16,7 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   tasks        Task[]
+  taskMutations TaskMutation[]
 }
 
 model Task {
@@ -30,6 +31,7 @@ model Task {
   locationTimestamp DateTime?
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
+  version           Int         @default(0)
   user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   images            TaskImage[]
   audios            TaskAudio[]
@@ -37,14 +39,29 @@ model Task {
   @@index([userId])
 }
 
+model TaskMutation {
+  id           String   @id @default(uuid())
+  userId       String
+  key          String
+  operation    String
+  requestHash  String
+  responseBody Json?
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@index([createdAt])
+}
+
 model TaskImage {
-  id        String   @id @default(uuid())
-  taskId    String
-  url       String
-  filename  String
-  mimeType  String
-  size      Int
-  createdAt DateTime @default(now())
+  id          String   @id @default(uuid())
+  taskId      String
+  url         String
+  filename    String
+  mimeType    String
+  size        Int
+  contentHash String?
+  createdAt   DateTime @default(now())
   task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@index([taskId])

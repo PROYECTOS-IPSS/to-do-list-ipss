@@ -14,6 +14,7 @@ export type Task = {
   locationTimestamp: string | null;
   createdAt: string;
   updatedAt: string;
+  version: number;
 };
 
 export type TaskLocationInput = {
@@ -38,18 +39,26 @@ type TaskInput = Pick<Task, 'title'> & Partial<Pick<Task, 'description' | 'compl
 }>;
 
 export class TaskHttpError extends Error {
-  constructor(readonly statusCode: number, message: string) {
+  constructor(readonly statusCode: number, message: string, readonly retryAfterMs?: number) {
     super(message);
     this.name = 'TaskHttpError';
   }
 }
+
+export const parseRetryAfterMs = (value: string | null, now = Date.now()): number | undefined => {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? undefined : Math.max(0, timestamp - now);
+};
 
 const taskErrorSchema = z.object({ error: z.object({ message: z.string() }).partial() }).partial();
 
 const request = async (path: string, token: string, options?: RequestInit) => {
   const url = `${apiUrl}${path}`;
   const response = await fetch(url, {
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(options?.headers ?? {}) },
     ...options
   });
   let body: unknown;
@@ -57,13 +66,13 @@ const request = async (path: string, token: string, options?: RequestInit) => {
     try { body = await response.json(); } catch { body = undefined; }
   }
   const parsedError = taskErrorSchema.safeParse(body);
-  if (!response.ok) throw new TaskHttpError(response.status, parsedError.success ? parsedError.data.error?.message ?? 'Request failed.' : 'Request failed.');
+  if (!response.ok) throw new TaskHttpError(response.status, parsedError.success ? parsedError.data.error?.message ?? 'Request failed.' : 'Request failed.', parseRetryAfterMs(response.headers.get('Retry-After')));
   return body;
 };
 export const tasksApi = {
   list: (token: string) => request('/api/tasks', token) as Promise<Task[]>,
   get: (token: string, id: string) => request(`/api/tasks/${id}`, token) as Promise<Task>,
-  create: (token: string, input: TaskInput) => request('/api/tasks', token, { method: 'POST', body: JSON.stringify(input) }) as Promise<Task>,
-  update: (token: string, id: string, input: Partial<TaskInput>) => request(`/api/tasks/${id}`, token, { method: 'PATCH', body: JSON.stringify(input) }) as Promise<Task>,
-  remove: (token: string, id: string) => request(`/api/tasks/${id}`, token, { method: 'DELETE' }) as Promise<void>
+  create: (token: string, input: TaskInput, operationId?: string) => request('/api/tasks', token, { method: 'POST', headers: operationId ? { 'Idempotency-Key': operationId } : undefined, body: JSON.stringify(input) }) as Promise<Task>,
+  update: (token: string, id: string, input: Partial<TaskInput>, operationId?: string, expectedVersion?: number) => request(`/api/tasks/${id}`, token, { method: 'PATCH', headers: { ...(operationId ? { 'Idempotency-Key': operationId } : {}), ...(expectedVersion === undefined ? {} : { 'If-Match': `"${expectedVersion}"` }) }, body: JSON.stringify(input) }) as Promise<Task>,
+  remove: (token: string, id: string, operationId?: string, expectedVersion?: number) => request(`/api/tasks/${id}`, token, { method: 'DELETE', headers: { ...(operationId ? { 'Idempotency-Key': operationId } : {}), ...(expectedVersion === undefined ? {} : { 'If-Match': `"${expectedVersion}"` }) } }) as Promise<void>
 };

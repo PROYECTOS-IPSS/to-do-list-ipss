@@ -23,7 +23,7 @@ const localTask: LocalTask = {
   latitude: oldLocation.latitude, longitude: oldLocation.longitude,
   locationAccuracy: oldLocation.accuracy, locationTimestamp: oldLocation.timestamp,
   createdAt: oldLocation.timestamp, updatedAt: oldLocation.timestamp,
-  localUpdatedAt: oldLocation.timestamp, syncState: 'clean', remoteOutcome: 'none', deletedAt: null
+  localUpdatedAt: oldLocation.timestamp, syncState: 'clean', remoteOutcome: 'none', deletedAt: null, version: 0, remoteVersion: 0
 };
 const clearedTask: LocalTask = { ...localTask, latitude: null, longitude: null, locationAccuracy: null, locationTimestamp: null };
 

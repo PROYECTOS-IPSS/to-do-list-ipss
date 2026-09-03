@@ -23,44 +23,63 @@ export class TaskStore {
   }
 
   async create(ownerId: string, mode: AccessMode, token: string | null, input: LocalTaskInput): Promise<TaskMutationResult> {
-    if (mode !== 'remote' || !token) return { task: await this.repository.createOffline(ownerId, input), source: 'local', pending: true };
+    const localTask = await this.repository.createOffline(ownerId, input);
+    const operation = await this.repository.enqueueOperation(ownerId, localTask.localId, 'create', JSON.stringify(input));
+    if (mode !== 'remote' || !token) return { task: localTask, source: 'local', pending: true };
     try {
-      const remoteTask = await tasksApi.create(token, input);
-      return { task: await this.repository.saveRemote(ownerId, remoteTask), source: 'remote', pending: false };
+      const remoteTask = await tasksApi.create(token, input, operation.operationId);
+      const task = await this.repository.confirmCreate(ownerId, localTask.localId, remoteTask);
+      await this.repository.updateOperation(ownerId, operation.operationId, 'confirmed');
+      return { task, source: 'remote', pending: false };
     } catch (error) {
-      if (isHttpError(error)) throw error;
-      return { task: await this.repository.createOffline(ownerId, input, 'unknown'), source: 'uncertain', pending: true };
+      if (isHttpError(error)) {
+        await this.repository.updateOperation(ownerId, operation.operationId, error.statusCode === 409 ? 'conflict' : 'failed', error.message);
+        throw error;
+      }
+      await this.repository.updateOffline(ownerId, localTask.localId, {}, 'unknown');
+      return { task: await this.repository.find(ownerId, localTask.localId), source: 'uncertain', pending: true };
     }
   }
 
   async update(ownerId: string, mode: AccessMode, token: string | null, localTask: LocalTask, patch: Partial<LocalTaskInput>): Promise<TaskMutationResult> {
-    if (mode !== 'remote' || !token || !localTask.remoteId) return { task: await this.repository.updateOffline(ownerId, localTask.localId, patch), source: 'local', pending: true };
+    const task = await this.repository.updateOffline(ownerId, localTask.localId, patch);
+    const operation = await this.repository.enqueueOperation(ownerId, task.localId, 'update', JSON.stringify(patch), localTask.remoteVersion.toString());
+    if (mode !== 'remote' || !token || !localTask.remoteId) return { task, source: 'local', pending: true };
     try {
-      const remoteTask = await tasksApi.update(token, localTask.remoteId, patch);
-      return { task: await this.repository.saveRemote(ownerId, remoteTask), source: 'remote', pending: false };
+      const remoteTask = await tasksApi.update(token, localTask.remoteId, patch, operation.operationId, localTask.remoteVersion);
+      const saved = await this.repository.saveRemoteIfUnchanged(ownerId, task.localId, task.localUpdatedAt, remoteTask);
+      await this.repository.updateOperation(ownerId, operation.operationId, 'confirmed');
+      return { task: saved.task, source: saved.applied ? 'remote' : 'local', pending: !saved.applied };
     } catch (error) {
-      if (isHttpError(error)) throw error;
-      return { task: await this.repository.updateOffline(ownerId, localTask.localId, patch, 'unknown'), source: 'uncertain', pending: true };
+      if (isHttpError(error)) {
+        await this.repository.updateOperation(ownerId, operation.operationId, error.statusCode === 409 ? 'conflict' : 'failed', error.message);
+        throw error;
+      }
+      return { task: await this.repository.updateOffline(ownerId, task.localId, {}, 'unknown'), source: 'uncertain', pending: true };
     }
   }
-
   async remove(ownerId: string, mode: AccessMode, token: string | null, localTask: LocalTask): Promise<TaskMutationResult> {
-    if (mode !== 'remote' || !token || !localTask.remoteId) {
-      const task = await this.repository.markDelete(ownerId, localTask.localId);
-      return { task, source: 'local', pending: Boolean(task) };
-    }
+    const task = await this.repository.markDelete(ownerId, localTask.localId);
+    const operation = task ? await this.repository.enqueueOperation(ownerId, task.localId, 'delete', '{}', localTask.remoteVersion.toString()) : null;
+    if (mode !== 'remote' || !token || !localTask.remoteId || !operation) return { task, source: 'local', pending: Boolean(task) };
     try {
-      await tasksApi.remove(token, localTask.remoteId);
+      await tasksApi.remove(token, localTask.remoteId, operation.operationId, localTask.remoteVersion);
       await this.repository.deleteRemoteConfirmed(ownerId, localTask.localId);
+      await this.repository.updateOperation(ownerId, operation.operationId, 'confirmed');
       return { task: null, source: 'remote', pending: false };
     } catch (error) {
-      if (isHttpError(error)) throw error;
-      const task = await this.repository.markDelete(ownerId, localTask.localId, 'unknown');
-      return { task, source: 'uncertain', pending: Boolean(task) };
+      if (isHttpError(error)) {
+        await this.repository.updateOperation(ownerId, operation.operationId, error.statusCode === 409 ? 'conflict' : 'failed', error.message);
+        throw error;
+      }
+      return { task: await this.repository.markDelete(ownerId, localTask.localId, 'unknown'), source: 'uncertain', pending: true };
     }
   }
   find(ownerId: string, localId: string) {
     return this.repository.find(ownerId, localId);
+  }
+  saveRemoteIfUnchanged(ownerId: string, localId: string, expectedLocalUpdatedAt: string, task: Parameters<LocalTaskRepository['saveRemote']>[1]) {
+    return this.repository.saveRemoteIfUnchanged(ownerId, localId, expectedLocalUpdatedAt, task);
   }
   saveRemote(ownerId: string, task: Parameters<LocalTaskRepository['saveRemote']>[1]) {
     return this.repository.saveRemote(ownerId, task);
@@ -74,5 +93,20 @@ export class TaskStore {
   }
   saveLocalImage(ownerId: string, taskLocalId: string, uri: string) {
     return this.repository.saveLocalImage(ownerId, taskLocalId, uri);
+  }
+  listOperations(ownerId: string) {
+    return this.repository.listOperations(ownerId);
+  }
+  markOperation(ownerId: string, operationId: string, state: Parameters<LocalTaskRepository['updateOperation']>[2], error?: string | null, retryAfterAt?: string | null) {
+    return this.repository.updateOperation(ownerId, operationId, state, error, retryAfterAt);
+  }
+  requeueOperation(ownerId: string, operationId: string, remoteVersion: number) {
+    return this.repository.requeueOperation(ownerId, operationId, remoteVersion);
+  }
+  confirmCreate(ownerId: string, localId: string, task: Parameters<LocalTaskRepository['confirmCreate']>[2]) {
+    return this.repository.confirmCreate(ownerId, localId, task);
+  }
+  deleteRemoteConfirmed(ownerId: string, localId: string) {
+    return this.repository.deleteRemoteConfirmed(ownerId, localId);
   }
 }

@@ -16,7 +16,7 @@ const fileBody = (uri: string, name: string, type: string, extra?: Record<string
 export const audioFileUrl = (taskId: string, audioId: string) => `${apiUrl}/api/tasks/${taskId}/audios/${audioId}/file`;
 export const imageFileUrl = (taskId: string, imageId: string) => `${apiUrl}/api/tasks/${taskId}/images/${imageId}/file`;
 export const attachmentsApi = {
-  uploadImage: (token: string, taskId: string, uri: string) => request(`/api/tasks/${taskId}/images`, token, { method: 'POST', body: fileBody(uri, 'task-image.jpg', 'image/jpeg') }),
+  uploadImage: (token: string, taskId: string, uri: string, operationId?: string) => request(`/api/tasks/${taskId}/images`, token, { method: 'POST', headers: operationId ? { 'Idempotency-Key': operationId } : undefined, body: fileBody(uri, 'task-image.jpg', 'image/jpeg') }),
   images: (token: string, taskId: string) => request(`/api/tasks/${taskId}/images`, token),
   deleteImage: (token: string, taskId: string, imageId: string) => request(`/api/tasks/${taskId}/images/${imageId}`, token, { method: 'DELETE' }),
   uploadAudio: (token: string, taskId: string, uri: string, duration: number) => request(`/api/tasks/${taskId}/audios`, token, { method: 'POST', body: fileBody(uri, 'task-audio.m4a', 'audio/mp4', { duration: String(duration) }) }),
