@@ -42,4 +42,16 @@ describe('authApi response classification', () => {
 
     await expect(authApi.me('token')).rejects.toThrow('Network request failed');
   });
+
+  it('aborts a request that never returns', async () => {
+    jest.useFakeTimers();
+    try {
+      fetchMock.mockImplementation((_input, init) => new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true })));
+      const pending = authApi.me('token');
+      jest.advanceTimersByTime(15_000);
+      await expect(pending).rejects.toMatchObject({ name: 'AuthTimeoutError' });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

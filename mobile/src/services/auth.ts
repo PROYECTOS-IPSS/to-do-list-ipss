@@ -19,6 +19,13 @@ export class AuthHttpError extends Error {
   }
 }
 
+export class AuthTimeoutError extends Error {
+  constructor() {
+    super('La solicitud de autenticación tardó demasiado.');
+    this.name = 'AuthTimeoutError';
+  }
+}
+
 export class AuthResponseError extends Error {
   constructor(message: string) {
     super(message);
@@ -27,23 +34,36 @@ export class AuthResponseError extends Error {
 }
 
 const request = async (path: string, options?: RequestInit, token?: string): Promise<unknown> => {
-  const response = await fetch(`${apiUrl}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    ...options
-  });
-  let body: unknown;
-  if (response.status !== 204) {
-    try { body = await response.json(); }
-    catch {
-      if (!response.ok) throw new AuthHttpError(response.status, undefined, 'Request failed.');
-      throw new AuthResponseError('Server returned malformed JSON.');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  const startedAt = Date.now();
+  if (process.env.NODE_ENV !== 'production') console.info(`[auth] start ${options?.method ?? 'GET'} ${path} ${apiUrl}`);
+  try {
+    const response = await fetch(`${apiUrl}${path}`, {
+      ...options,
+      signal: controller.signal,
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(options?.headers ?? {}) }
+    });
+    if (process.env.NODE_ENV !== 'production') console.info(`[auth] response ${options?.method ?? 'GET'} ${path} ${response.status} ${Date.now() - startedAt}ms`);
+    let body: unknown;
+    if (response.status !== 204) {
+      try { body = await response.json(); }
+      catch {
+        if (!response.ok) throw new AuthHttpError(response.status, undefined, 'Request failed.');
+        throw new AuthResponseError('Server returned malformed JSON.');
+      }
     }
+    if (!response.ok) {
+      const parsed = errorResponseSchema.safeParse(body);
+      throw new AuthHttpError(response.status, parsed.success ? parsed.data.error.code : undefined, parsed.success ? parsed.data.error.message : 'Request failed.');
+    }
+    return body;
+  } catch (error) {
+    if (controller.signal.aborted) throw new AuthTimeoutError();
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
-  if (!response.ok) {
-    const parsed = errorResponseSchema.safeParse(body);
-    throw new AuthHttpError(response.status, parsed.success ? parsed.data.error.code : undefined, parsed.success ? parsed.data.error.message : 'Request failed.');
-  }
-  return body;
 };
 
 export const authApi = {
