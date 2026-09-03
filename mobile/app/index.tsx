@@ -3,43 +3,29 @@ import { FlatList, Image, View } from 'react-native';
 import { Redirect, useRouter } from 'expo-router';
 import { useAuth } from '../src/auth/AuthProvider';
 import { attachmentsApi } from '../src/services/attachments';
-import { getCurrentLocation, takePhoto } from '../src/services/peripherals';
 import { preferences, type TaskFilter } from '../src/services/preferences';
-import { tasksApi, type Task, type TaskLocationClearInput, type TaskLocationInput } from '../src/services/tasks';
+import { tasksApi, type Task } from '../src/services/tasks';
 import type { TaskLocation } from '../src/services/location-validation';
 import { AppBadge, AppButton, AppConfirmModal, AppFeedback, AppInput, AppLogo, AppText, Card, Screen, StateMessage, TaskCard } from '../src/ui/components';
+import { locationInput, useTaskComposer } from '../src/services/task-composer';
 
-const locationInput = (location: TaskLocation): TaskLocationInput => ({
-  latitude: location.latitude,
-  longitude: location.longitude,
-  locationAccuracy: location.accuracy,
-  locationTimestamp: location.timestamp
-});
 
 const taskLocation = (task: Task): TaskLocation | undefined => {
   if (task.latitude === null || task.longitude === null || task.locationAccuracy === null || task.locationTimestamp === null) return undefined;
   return { latitude: task.latitude, longitude: task.longitude, accuracy: task.locationAccuracy, timestamp: task.locationTimestamp };
 };
 
-const clearLocation = (): TaskLocationClearInput => ({
-  latitude: null,
-  longitude: null,
-  locationAccuracy: null,
-  locationTimestamp: null
-});
 
 export default function Index() {
-  const { user, token, loading: authLoading, logout } = useAuth();
+  const { user, token, loading: authLoading, restoreError, retryRestore, logout } = useAuth();
   const router = useRouter();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [editingId, setEditingId] = useState<string>();
   const [location, setLocation] = useState<TaskLocation>();
-  const [locationLoading, setLocationLoading] = useState(false);
   const [photoUri, setPhotoUri] = useState<string>();
   const [photoPending, setPhotoPending] = useState(false);
-  const [photoLoading, setPhotoLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -51,6 +37,7 @@ export default function Index() {
   const [confirmTaskId, setConfirmTaskId] = useState<string>();
   const [feedback, setFeedback] = useState<{ message: string; tone: 'success' | 'error' | 'info' }>();
   const [taskImageUrls, setTaskImageUrls] = useState<Record<string, string>>({});
+  const { locationLoading, photoLoading, attachLocation, removeLocation, attachPhoto } = useTaskComposer({ token, editingId, saving, setTasks, setLocation, setPhotoUri, setPhotoPending, setFeedback });
 
   const loadTasks = useCallback(async () => {
     if (!token) return;
@@ -99,51 +86,11 @@ export default function Index() {
   const taskSummary = useMemo(() => ({ total: tasks.length, active: tasks.filter((task) => !task.completed).length, completed: tasks.filter((task) => task.completed).length }), [tasks]);
 
   if (authLoading) return <Screen><StateMessage title="Cargando sesión..." /></Screen>;
+  if (restoreError) return <Screen><StateMessage title={restoreError} tone="error" actionTitle="Reintentar" onAction={() => void retryRestore()} /></Screen>;
   if (!user || !token) return <Redirect href="/auth/login" />;
+  const authenticatedToken = token;
+  const authenticatedUser = user;
 
-  const attachLocation = async () => {
-    if (locationLoading || saving) return;
-    setLocationLoading(true);
-    try {
-      const nextLocation = await getCurrentLocation();
-      if (editingId) {
-        const updated = await tasksApi.update(token, editingId, locationInput(nextLocation));
-        setTasks((current) => current.map((item) => item.id === updated.id ? updated : item));
-      }
-      setLocation(nextLocation);
-    } catch {
-      setFeedback({ message: 'No se pudo obtener la ubicación. Revisa el GPS e inténtalo de nuevo.', tone: 'error' });
-    } finally {
-      setLocationLoading(false);
-    }
-  };
-
-  const removeLocation = async () => {
-    if (locationLoading || saving) return;
-    if (!editingId) { setLocation(undefined); return; }
-    setLocationLoading(true);
-    try {
-      const updated = await tasksApi.update(token, editingId, clearLocation());
-      setTasks((current) => current.map((item) => item.id === updated.id ? updated : item));
-      setLocation(undefined);
-      setFeedback({ message: 'Ubicación eliminada.', tone: 'success' });
-    } catch {
-      setFeedback({ message: 'No se pudo eliminar la ubicación. Inténtalo de nuevo.', tone: 'error' });
-      setLocationLoading(false);
-    }
-  };
-
-  const attachPhoto = async () => {
-    if (photoLoading || saving) return;
-    setPhotoLoading(true);
-    try {
-      const photo = await takePhoto();
-      if (photo) { setPhotoUri(photo.uri); setPhotoPending(true); }
-    } catch {
-      setFeedback({ message: 'No se pudo capturar la foto. Inténtalo de nuevo.', tone: 'error' });
-      setPhotoLoading(false);
-    }
-  };
 
   const saveTask = async () => {
     if (!title.trim() || saving) return;
@@ -152,11 +99,11 @@ export default function Index() {
     const wasEditing = Boolean(editingId);
     try {
       const input = { title: title.trim(), description: description.trim() || null, ...(location ? locationInput(location) : {}) };
-      const task = editingId ? await tasksApi.update(token, editingId, input) : await tasksApi.create(token, input);
+      const task = editingId ? await tasksApi.update(authenticatedToken, editingId, input) : await tasksApi.create(authenticatedToken, input);
       setTasks((current) => wasEditing ? current.map((item) => item.id === task.id ? task : item) : [task, ...current]);
       setTitle(''); setDescription(''); setEditingId(undefined); setLocation(undefined); setPhotoUri(undefined); setPhotoPending(false);
       if (photoPending && photoUri) {
-        try { await attachmentsApi.uploadImage(token, task.id, photoUri); }
+        try { await attachmentsApi.uploadImage(authenticatedToken, task.id, photoUri); }
         catch { setFeedback({ message: 'La tarea se guardó, pero no se pudo subir la imagen.', tone: 'error' }); return; }
       }
       setFeedback({ message: wasEditing ? 'Tarea actualizada.' : 'Tarea creada.', tone: 'success' });
@@ -171,7 +118,7 @@ export default function Index() {
     if (saving || updatingId || deletingId) return;
     setUpdatingId(task.id);
     try {
-      const updated = await tasksApi.update(token, task.id, { completed: !task.completed });
+      const updated = await tasksApi.update(authenticatedToken, task.id, { completed: !task.completed });
       setTasks((current) => current.map((item) => item.id === updated.id ? updated : item));
     } catch {
       setFeedback({ message: 'No se pudo actualizar la tarea. Inténtalo de nuevo.', tone: 'error' });
@@ -187,7 +134,7 @@ export default function Index() {
   const confirmRemoveTask = async (id: string) => {
     setDeletingId(id);
     try {
-      await tasksApi.remove(token, id);
+      await tasksApi.remove(authenticatedToken, id);
       setTasks((current) => current.filter((task) => task.id !== id));
       setFeedback({ message: 'Tarea eliminada.', tone: 'success' });
     } catch {
@@ -214,7 +161,7 @@ export default function Index() {
       className="flex-1"
       contentContainerClassName="pb-xxl"
       ListHeaderComponent={<View>
-        <View className="flex-row items-start justify-between mb-lg"><View className="flex-row items-center gap-md flex-1"><AppLogo compact /><View className="flex-1"><AppText variant="caption" muted>Hola{user.name ? `, ${user.name}` : ''}</AppText><AppText variant="display">Task desk</AppText><AppText variant="bodySecondary" muted>Organiza tu día con calma.</AppText></View></View><AppButton title="Cerrar sesión" variant="ghost" loading={loggingOut} onPress={() => void handleLogout()} accessibilityLabel="Cerrar sesión" /></View>
+        <View className="flex-row items-start justify-between mb-lg"><View className="flex-row items-center gap-md flex-1"><AppLogo compact /><View className="flex-1"><AppText variant="caption" muted>Hola{authenticatedUser.name ? `, ${authenticatedUser.name}` : ''}</AppText><AppText variant="display">Task desk</AppText><AppText variant="bodySecondary" muted>Organiza tu día con calma.</AppText></View></View><AppButton title="Cerrar sesión" variant="ghost" loading={loggingOut} onPress={() => void handleLogout()} accessibilityLabel="Cerrar sesión" /></View>
         <View className="flex-row items-center justify-between mb-md"><AppBadge label="Tu espacio" tone="accent" /><AppFeedback message={feedback?.message} tone={feedback?.tone} /></View>
         <View className="flex-row gap-sm mb-lg">
           <Card className="flex-1 p-md"><AppText variant="heading">{taskSummary.total}</AppText><AppText variant="caption" muted>Total</AppText></Card>
