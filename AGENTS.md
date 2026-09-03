@@ -33,29 +33,31 @@ Mobile y backend son workspaces npm del monorepo raíz. No mezclar responsabilid
 
 ### Mobile
 
-- React Native `0.81.5`.
-- Expo `~54.0.0`.
-- Expo Router `~6.0.0`.
-- React `19.1.0`.
-- TypeScript `~5.9.2`.
-- NativeWind `^4.1.23`.
+- React Native `0.86.3`.
+- Expo `~57.0.17`.
+- Expo Router `~57.0.18`.
+- React `19.2.3`.
+- TypeScript `~6.0.3`.
+- NativeWind `4.2.6`.
 - TailwindCSS `^3.4.17`.
-- `react-native-css-interop` `^0.1.22`.
-- `react-native-reanimated` `^3.19.4`.
-- `react-native-safe-area-context` `~5.6.0`.
+- `react-native-css-interop` `0.2.6`.
+- `react-native-reanimated` `4.5.1`.
+- `react-native-worklets` `0.10.1`.
+- `react-native-safe-area-context` `~5.7.0`.
 - `@react-native-async-storage/async-storage` `^2.2.0`.
-- `react-native-screens` `~4.16.0`.
-- `expo-secure-store` `~15.0.8`.
-- `expo-image-picker` `~17.0.11`.
-- `expo-camera` `~17.0.10`.
-- `expo-location` `~19.0.8`.
-- `expo-audio` `~1.1.1`.
-- `expo-file-system` `~19.0.23`.
-- `expo-asset` `~12.0.13`.
-- `expo-dev-client` `~6.0.0`.
-- `expo-status-bar` `~3.0.0`.
+- `react-native-screens` `~4.26.0`.
+- `expo-secure-store` `~57.0.3`.
+- `expo-image-picker` `~57.0.15`.
+- `expo-camera` `~57.0.4`.
+- `expo-location` `~57.0.15`.
+- `expo-audio` `~57.0.4`.
+- `expo-file-system` `~57.0.6`.
+- `expo-asset` `~57.0.16`.
+- `expo-dev-client` `~57.0.18`.
+- `expo-status-bar` `~57.0.1`.
+- `expo-system-ui` `~57.0.3`.
 - Zod `^4.4.3`.
-- Jest `^30.4.2` y ts-jest `^29.4.12` para tests móviles.
+- Jest `~29.7.0` y ts-jest `^29.4.12` para tests móviles.
 
 ### Backend
 
@@ -220,6 +222,8 @@ Desde la raíz:
 
 ```bash
 npm test
+npm run test:backend
+npm run test:mobile
 npm run typecheck
 npm run lint
 ```
@@ -247,7 +251,7 @@ No hay proveedor de producción configurado en repositorio.
 Backend reproducible en infraestructura externa:
 
 ```bash
-npm install
+npm ci
 npm run prisma:generate
 npm --workspace backend exec prisma migrate deploy
 npm --workspace backend start
