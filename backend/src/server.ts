@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express, { type ErrorRequestHandler } from 'express';
 import multer from 'multer';
+import { prisma } from './config/prisma';
 import { authRoutes } from './routes/auth.routes';
 import { attachmentRoutes } from './routes/attachment.routes';
 import { taskRoutes } from './routes/task.routes';
@@ -12,6 +13,14 @@ app.use(express.json());
 
 app.get('/health', (_request, response) => {
   response.json({ status: 'ok' });
+});
+app.get('/ready', async (_request, response) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    response.json({ status: 'ready' });
+  } catch {
+    response.status(503).json({ status: 'not-ready' });
+  }
 });
 app.use('/api/tasks/:id', attachmentRoutes);
 
