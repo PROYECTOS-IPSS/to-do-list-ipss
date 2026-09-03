@@ -571,3 +571,22 @@ Cambios JS/TS/UI normalmente requieren Metro o recarga del Development Build exi
 ## Licencia y uso académico
 
 Proyecto académico para Desarrollo de Aplicaciones Móviles. No contiene secretos reales en documentación; cada entorno debe usar sus propias credenciales locales.
+
+## Entorno local Docker
+
+```bash
+yarn install --frozen-lockfile
+yarn setup
+yarn dev:docker
+```
+
+Compose ejecuta PostgreSQL independiente, migraciones y backend; Expo/Metro permanece en host. Comandos diarios:
+
+```bash
+yarn status:docker
+yarn logs:docker
+yarn stop:docker
+yarn rebuild:docker
+```
+
+Edita únicamente `.env` raíz. `EXPO_PUBLIC_API_URL` debe apuntar a IP LAN del host desde celular; `db:5432` solo es dirección interna Docker. Volúmenes nombrados conservan base y uploads; `stop:docker` no elimina datos. No se migran datos automáticamente desde PostgreSQL existente. Detalles y bloqueos: `docs/LOCAL_DOCKER_SETUP.md`.

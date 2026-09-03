@@ -204,18 +204,26 @@ No agregar endpoints desde mobile.
 
 ## Variables de entorno
 
-Backend `.env` usa:
+El entorno local usa únicamente `.env` raíz:
 
-- `PORT`;
-- `DATABASE_URL`;
-- `JWT_SECRET`;
-- `UPLOAD_DIR` opcional.
+- `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`: PostgreSQL Docker.
+- `JWT_SECRET`: backend Docker.
+- `BACKEND_PORT`: puerto publicado del backend.
+- `EXPO_PUBLIC_API_URL`: URL pública autorizada para Metro/celular.
 
-Mobile `.env` usa:
+Compose distribuye solo variables necesarias al backend; Metro recibe únicamente `EXPO_PUBLIC_API_URL`. `.env` está ignorado por Git, Docker y EAS. `*.example` contiene únicamente placeholders seguros.
 
-- `EXPO_PUBLIC_API_URL`.
+## Entorno local Docker
 
-`.env` está ignorado por Git. `*.example` contiene únicamente valores seguros de ejemplo.
+```bash
+yarn setup
+yarn dev:docker
+yarn status:docker
+yarn logs:docker
+yarn stop:docker
+```
+
+Compose mantiene PostgreSQL y uploads en volúmenes nombrados independientes; `down` no los elimina. Backend espera migraciones y `/ready` antes de Metro. El celular usa `EXPO_PUBLIC_API_URL` con IP LAN del host. Ver `docs/LOCAL_DOCKER_SETUP.md`.
 
 ## Testing obligatorio
 
