@@ -14,6 +14,9 @@ jest.mock('../../services/auth', () => {
       getToken: jest.fn(),
       me: jest.fn(),
       clearToken: jest.fn(),
+      clearLocalIdentity: jest.fn(),
+      getLocalIdentity: jest.fn(),
+      saveLocalIdentity: jest.fn(),
       login: jest.fn(),
       register: jest.fn(),
       saveToken: jest.fn()
@@ -51,7 +54,10 @@ describe('AuthProvider session restoration', () => {
     jest.clearAllMocks();
     context = undefined;
     jest.mocked(authApi.getToken).mockResolvedValue(null);
+    jest.mocked(authApi.getLocalIdentity).mockResolvedValue(null);
     jest.mocked(authApi.clearToken).mockResolvedValue(undefined);
+    jest.mocked(authApi.clearLocalIdentity).mockResolvedValue(undefined);
+    jest.mocked(authApi.saveLocalIdentity).mockResolvedValue(undefined);
   });
 
   it('finishes without a session when SecureStore has no token', async () => {
