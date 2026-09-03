@@ -27,7 +27,7 @@ backend/ Express + TypeScript + Zod
 PostgreSQL
 ```
 
-Mobile y backend son workspaces npm del monorepo raíz. No mezclar responsabilidades entre ambos.
+Mobile y backend son workspaces Yarn del monorepo raíz. No mezclar responsabilidades entre ambos.
 
 ## Stack actual
 
@@ -222,25 +222,25 @@ Mobile `.env` usa:
 Desde la raíz:
 
 ```bash
-npm test
-npm run test:backend
-npm run test:mobile
-npm run typecheck
-npm run lint
+yarn test
+yarn run test:backend
+yarn run test:mobile
+yarn run typecheck
+yarn run lint
 ```
 
 Prisma:
 
 ```bash
-npm run prisma:generate
-npm --workspace backend exec prisma validate
-npm --workspace backend exec prisma migrate status
+yarn run prisma:generate
+yarn workspace task-manager-backend exec prisma validate
+yarn workspace task-manager-backend exec prisma migrate status
 ```
 
 Android:
 
 ```bash
-npm run android --workspace mobile
+yarn workspace task-manager-mobile android
 ```
 
 La suite de backend usa Jest + Supertest (7 suites, 61 tests) y cubre auth, ownership, CRUD, validación, attachments, GPS, audio y preferencias. Mobile tiene `mobile/jest.config.cjs` y tests de esquemas en `mobile/src/services/__tests__/`. Hardware real requiere Development Build Android.
@@ -252,16 +252,16 @@ No hay proveedor de producción configurado en repositorio.
 Backend reproducible en infraestructura externa:
 
 ```bash
-npm ci
-npm run prisma:generate
-npm --workspace backend exec prisma migrate deploy
-npm --workspace backend start
+yarn install --frozen-lockfile
+yarn run prisma:generate
+yarn workspace task-manager-backend exec prisma migrate deploy
+yarn workspace task-manager-backend start
 ```
 
 Mobile local:
 
 ```bash
-npm run android --workspace mobile
+yarn workspace task-manager-mobile android
 ```
 
 `mobile/eas.json` contiene únicamente perfil `development` con `developmentClient: true` y `distribution: internal`.
@@ -269,8 +269,8 @@ npm run android --workspace mobile
 EAS Development Build:
 
 ```bash
-npx eas-cli login
-npx eas-cli build --profile development --platform android
+npx eas-cli@23.2.0 login
+npx eas-cli@23.2.0 build --profile development --platform android
 ```
 
 No documentar perfil production porque no está configurado.

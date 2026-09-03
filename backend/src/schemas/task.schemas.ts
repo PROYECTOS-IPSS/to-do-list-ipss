@@ -23,10 +23,10 @@ const createTaskFieldsSchema = taskFieldsSchema.extend({
 });
 
 const locationFields = ['latitude', 'longitude', 'locationAccuracy', 'locationTimestamp'] as const;
-const provenanceFields = ['externalProvider', 'externalId'] as const;
+type ProvenanceField = 'externalProvider' | 'externalId';
 
 const validateProvenanceFields = (
-  value: Partial<Record<(typeof provenanceFields)[number], unknown>>,
+  value: Partial<Record<ProvenanceField, unknown>>,
   context: z.RefinementCtx
 ) => {
   const providerSupplied = value.externalProvider !== undefined;

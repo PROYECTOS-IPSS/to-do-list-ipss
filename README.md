@@ -30,6 +30,7 @@ Repositorio monorepo npm:
 - Safe Area y Status Bar configuradas para Android.
 - Modales visuales para confirmaciones destructivas.
 - Importación selectiva de tareas de demostración desde JSONPlaceholder, con validación, procedencia y deduplicación por cuenta.
+- Verificación P5 documentada en `docs/P5_TEST_MATRIX.md`, `docs/P5_TEST_RESULTS.md` y guía de Development Build Android.
 
 ## Arquitectura
 
@@ -178,7 +179,7 @@ Versiones declaradas en `backend/package.json`:
 
 ## Requisitos
 
-- Node.js `>=20.19.4` y npm.
+- Node.js `>=20.19.4` y Yarn Classic `1.22.22`.
 - Java 21.
 - Android SDK con platform/build-tools 36 y NDK `27.1.12297006`.
 - PostgreSQL accesible.
@@ -190,7 +191,7 @@ Versiones declaradas en `backend/package.json`:
 ```bash
 git clone <URL_DEL_REPOSITORIO>
 cd to-do-list
-npm ci
+yarn install --frozen-lockfile
 
 Los workspaces raíz son `mobile` y `backend`.
 
@@ -257,15 +258,15 @@ No existe seed configurado.
 Desde la raíz:
 
 ```bash
-npm run backend
+yarn run backend
 ```
 
 Equivalentes definidos:
 
 ```bash
-npm run backend:start
-npm --workspace backend run dev
-npm --workspace backend start
+yarn run backend:start
+yarn workspace task-manager-backend run dev
+yarn workspace task-manager-backend start
 ```
 
 Health check:
@@ -279,27 +280,27 @@ GET http://localhost:3000/health
 Desde la raíz:
 
 ```bash
-npm run mobile
-npm run mobile:dev-client
+yarn run mobile
+yarn run mobile:dev-client
 ```
 
 Desde `mobile/`:
 
 ```bash
-npm start
-npm run start:dev-client
+yarn start
+yarn run start:dev-client
 ```
 
 ### Development Build Android
 
 ```bash
-npm run android --workspace mobile
+yarn workspace task-manager-mobile android
 ```
 
 También puede ejecutarse desde `mobile/`:
 
 ```bash
-npm run android
+yarn android
 ```
 
 Usar Development Build porque la aplicación utiliza módulos nativos como SecureStore, cámara, ubicación y audio.
@@ -394,7 +395,7 @@ La UI actual utiliza identidad dark, safe area, status bar coherente, textos en 
 Suite backend y mobile:
 
 ```bash
-npm test
+yarn test
 ```
 
 El comando ejecuta backend y mobile; falla si falla cualquiera.
@@ -402,14 +403,14 @@ El comando ejecuta backend y mobile; falla si falla cualquiera.
 Suites separadas:
 
 ```bash
-npm run test:backend
-npm run test:mobile
+yarn run test:backend
+yarn run test:mobile
 ```
 
 Comprobaciones TypeScript:
 
 ```bash
-npm run typecheck
+yarn run typecheck
 ```
 
 Comprueba mobile y backend.
@@ -417,21 +418,21 @@ Comprueba mobile y backend.
 Lint:
 
 ```bash
-npm run lint
+yarn run lint
 ```
 
 Prisma:
 
 ```bash
-npm run prisma:generate
-npm --workspace backend exec prisma validate
-npm --workspace backend exec prisma migrate status
+yarn run prisma:generate
+yarn workspace task-manager-backend exec prisma validate
+yarn workspace task-manager-backend exec prisma migrate status
 ```
 
 Android:
 
 ```bash
-npm run android --workspace mobile
+yarn workspace task-manager-mobile android
 ```
 
 Resultado comprobado: backend 7 suites / 61 tests y mobile 1 suite / 48 tests aprobados; exportación Android y compilación `assembleDebug` aprobadas.

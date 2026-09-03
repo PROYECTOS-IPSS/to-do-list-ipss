@@ -1,0 +1,14 @@
+appId: com.taskmanager.mobile
+name: Login, CRUD and import smoke
+---
+# Requires a running development build, backend, and test account.
+- launchApp
+- tapOn: "Correo electrónico"
+- inputText: ${TEST_EMAIL}
+- tapOn: "Contraseña"
+- inputText: ${TEST_PASSWORD}
+- tapOn: "Iniciar sesión"
+- assertVisible: "Importar tareas"
+- tapOn: "Importar tareas"
+- tapOn: "Consultar fuente"
+- assertVisible: "JSONPlaceholder · tareas de demostración"
