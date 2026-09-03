@@ -9,7 +9,7 @@ export interface SqliteExecutor {
   withTransactionAsync<T>(task: () => Promise<T>): Promise<T>;
 }
 
-export const DATABASE_VERSION = 3;
+export const DATABASE_VERSION = 4;
 
 const migration = `
 CREATE TABLE IF NOT EXISTS tasks (
@@ -65,6 +65,11 @@ CREATE INDEX IF NOT EXISTS sync_operations_owner_state ON sync_operations(owner_
 `,
   3: `
 ALTER TABLE sync_operations ADD COLUMN retry_after_at TEXT;
+`,
+  4: `
+ALTER TABLE tasks ADD COLUMN source_provider TEXT;
+ALTER TABLE tasks ADD COLUMN source_external_id TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS tasks_owner_source ON tasks(owner_id, source_provider, source_external_id);
 `
 };
 

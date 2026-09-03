@@ -42,11 +42,15 @@ const run = async (ownerId: string, token: string, mode: AccessMode, force = fal
       summary.review += 1;
       continue;
     }
+    let waitedForRetryAfter = false;
     if (operation.retryAfterAt) {
       const retryAt = Date.parse(operation.retryAfterAt);
-      if (!Number.isNaN(retryAt) && retryAt > Date.now()) await wait(retryDelayMs(0, retryAt - Date.now()));
+      if (!Number.isNaN(retryAt) && retryAt > Date.now()) {
+        await wait(retryDelayMs(0, retryAt - Date.now()));
+        waitedForRetryAfter = true;
+      }
     }
-    if (operation.attempts > 0) await wait(retryDelayMs(operation.attempts));
+    if (!waitedForRetryAfter && operation.attempts > 0) await wait(retryDelayMs(operation.attempts));
     summary.attempted += 1;
     await store.markOperation(ownerId, operation.operationId, 'sending');
     try {
@@ -91,13 +95,11 @@ const resolve = async (ownerId: string, token: string, operationId: string, reso
     remote = await tasksApi.get(token, task.remoteId);
   } catch (error) {
     if (!isNotFound(error) || resolution !== 'server') throw error;
-    await store.deleteRemoteConfirmed(ownerId, task.localId);
-    await store.markOperation(ownerId, operation.operationId, 'confirmed');
+    await store.resolveRemoteDeletion(ownerId, operation.operationId);
     return;
   }
   if (resolution === 'server') {
-    await store.saveRemote(ownerId, remote);
-    await store.markOperation(ownerId, operation.operationId, 'confirmed');
+    await store.resolveWithRemote(ownerId, operation.operationId, remote);
     return;
   }
   if (operation.state !== 'conflict' || operation.kind === 'create') throw new Error('Este resultado incierto no puede reenviarse de forma segura.');
@@ -119,6 +121,7 @@ export const syncService = {
   },
   resolveConflict(ownerId: string, token: string | null, operationId: string, resolution: ConflictResolution) {
     if (!token) return Promise.reject(new Error('Se necesita una sesión remota para resolver conflictos.'));
+    if (active) return Promise.reject(new Error('La sincronización está en curso. Inténtalo de nuevo al terminar.'));
     return resolve(ownerId, token, operationId, resolution);
   }
 };

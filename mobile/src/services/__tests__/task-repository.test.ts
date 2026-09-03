@@ -133,6 +133,8 @@ describe('LocalTaskRepository on real SQLite', () => {
     await repository.updateOffline('user-a', stored.id, { title: 'Edición sin conexión' });
     const merged = await repository.mergeRemote('user-a', [{ ...remote, title: 'Respuesta antigua' }]);
     expect(merged[0]).toMatchObject({ title: 'Edición sin conexión', syncState: 'pending_update' });
+    const guarded = await repository.saveRemoteIfUnchanged('user-a', stored.localId, stored.localUpdatedAt, { ...remote, version: 1, title: 'Servidor nuevo' });
+    expect(guarded).toMatchObject({ applied: false, task: { title: 'Edición sin conexión', remoteVersion: 1, syncState: 'pending_update' } });
 
     await repository.markDelete('user-a', stored.id);
     expect(await repository.list('user-a')).toHaveLength(0);
@@ -195,5 +197,31 @@ describe('LocalTaskRepository on real SQLite', () => {
     expect(replacement).toMatchObject({ taskLocalId: edited.localId, kind: 'update', expectedVersion: '4', state: 'pending' });
     expect(await repository.find('user-a', edited.localId)).toMatchObject({ title: 'Mi cambio', remoteVersion: 4, syncState: 'pending_update', remoteOutcome: 'none' });
     expect(await repository.listOperations('user-a')).toEqual([expect.objectContaining({ operationId: replacement.operationId, state: 'pending' })]);
+  });
+
+  it('resolves server version atomically while preserving newer local operations', async () => {
+    const stored = await repository.saveRemote('user-a', { ...task('remote-5', 'Servidor'), version: 5 });
+    const edited = await repository.updateOffline('user-a', stored.localId, { title: 'Cambio local' });
+    const conflict = await repository.enqueueOperation('user-a', edited.localId, 'update', JSON.stringify({ title: 'Cambio local' }), '5');
+    await repository.updateOperation('user-a', conflict.operationId, 'conflict', 'Version conflict.');
+    const newerTask = await repository.updateOffline('user-a', edited.localId, { description: 'Edición posterior' });
+    await repository.enqueueOperation('user-a', newerTask.localId, 'update', JSON.stringify({ description: 'Edición posterior' }), '5');
+
+    const resolved = await repository.resolveWithRemote('user-a', conflict.operationId, { ...task('remote-5', 'Servidor actualizado'), version: 6 });
+    expect(resolved).toMatchObject({ title: 'Cambio local', description: 'Edición posterior', remoteVersion: 6, syncState: 'pending_update' });
+    expect(await repository.listOperations('user-a')).toEqual([expect.objectContaining({ kind: 'update', state: 'pending' })]);
+  });
+
+  it('imports a batch atomically with owner-scoped provenance deduplication', async () => {
+    const record = { provider: 'jsonplaceholder', externalId: '1', title: 'Importada', completed: false, description: null };
+    const result = await repository.importTasks('alice', [record, record, { ...record, externalId: '2' }]);
+    expect(result).toMatchObject({ imported: 2, skipped: 1 });
+    expect(result.tasks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceProvider: 'jsonplaceholder', sourceExternalId: '1', syncState: 'pending_create' }),
+      expect.objectContaining({ sourceProvider: 'jsonplaceholder', sourceExternalId: '2', syncState: 'pending_create' })
+    ]));
+    await expect(repository.importTasks('alice', [record])).resolves.toMatchObject({ imported: 0, skipped: 1 });
+    await expect(repository.importTasks('bob', [record])).resolves.toMatchObject({ imported: 1, skipped: 0 });
+    expect(await repository.listOperations('alice')).toHaveLength(2);
   });
 });

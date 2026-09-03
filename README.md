@@ -29,6 +29,7 @@ Repositorio monorepo npm:
 - Design System dark basado en NativeWind/TailwindCSS.
 - Safe Area y Status Bar configuradas para Android.
 - Modales visuales para confirmaciones destructivas.
+- Importación selectiva de tareas de demostración desde JSONPlaceholder, con validación, procedencia y deduplicación por cuenta.
 
 ## Arquitectura
 

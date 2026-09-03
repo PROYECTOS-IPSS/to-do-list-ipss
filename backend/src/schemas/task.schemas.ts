@@ -17,10 +17,29 @@ const taskFieldsSchema = z.object({
 }).strict();
 
 const createTaskFieldsSchema = taskFieldsSchema.extend({
-  completed: z.boolean().optional().default(false)
+  completed: z.boolean().optional().default(false),
+  externalProvider: z.string().trim().min(1).max(100).optional(),
+  externalId: z.string().trim().min(1).max(255).optional()
 });
 
 const locationFields = ['latitude', 'longitude', 'locationAccuracy', 'locationTimestamp'] as const;
+const provenanceFields = ['externalProvider', 'externalId'] as const;
+
+const validateProvenanceFields = (
+  value: Partial<Record<(typeof provenanceFields)[number], unknown>>,
+  context: z.RefinementCtx
+) => {
+  const providerSupplied = value.externalProvider !== undefined;
+  const idSupplied = value.externalId !== undefined;
+  if (providerSupplied !== idSupplied) {
+    context.addIssue({
+      code: 'custom',
+      path: [providerSupplied ? 'externalId' : 'externalProvider'],
+      message: 'External provenance requires externalProvider and externalId together.'
+    });
+  }
+};
+
 
 const validateLocationFields = (value: Partial<Record<(typeof locationFields)[number], unknown>>, context: z.RefinementCtx) => {
   const supplied = locationFields.some((field) => value[field] !== undefined);
@@ -32,8 +51,10 @@ const validateLocationFields = (value: Partial<Record<(typeof locationFields)[nu
     context.addIssue({ code: 'custom', path: ['latitude'], message: 'Location requires latitude, longitude, accuracy, and timestamp together.' });
   }
 };
-
-export const createTaskSchema = createTaskFieldsSchema.superRefine(validateLocationFields);
+export const createTaskSchema = createTaskFieldsSchema.superRefine((value, context) => {
+  validateLocationFields(value, context);
+  validateProvenanceFields(value, context);
+});
 
 export const updateTaskSchema = taskFieldsSchema.partial().superRefine((value, context) => {
   if (Object.keys(value).length === 0) {

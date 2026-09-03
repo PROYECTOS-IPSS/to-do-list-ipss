@@ -9,6 +9,8 @@ export type LocalTask = Omit<Task, 'id'> & {
   localId: string;
   ownerId: string;
   remoteId: string | null;
+  sourceProvider?: string | null;
+  sourceExternalId?: string | null;
   remoteVersion: number;
   syncState: SyncState;
   remoteOutcome: RemoteOutcome;
@@ -16,6 +18,7 @@ export type LocalTask = Omit<Task, 'id'> & {
   deletedAt: string | null;
 };
 export type LocalTaskInput = Pick<Task, 'title' | 'description' | 'completed' | 'latitude' | 'longitude' | 'locationAccuracy' | 'locationTimestamp'>;
+export type ImportedTaskInput = { title: string; description: string | null; completed: boolean; provider: string; externalId: string };
 export type LocalFile = { id: string; ownerId: string; taskLocalId: string; kind: 'image'; uri: string; createdAt: string };
 
 export type SyncOperationKind = 'create' | 'update' | 'delete' | 'image';
@@ -40,6 +43,8 @@ type TaskRow = {
   sync_state: SyncState;
   remote_outcome: RemoteOutcome;
   deleted_at: string | null;
+  source_provider: string | null;
+  source_external_id: string | null;
 };
 
 type FileRow = { id: string; owner_id: string; task_local_id: string; kind: 'image'; uri: string; created_at: string };
@@ -55,6 +60,8 @@ const rowToTask = (row: TaskRow): LocalTask => ({
   localId: row.local_id,
   ownerId: row.owner_id,
   remoteId: row.remote_id,
+  sourceProvider: row.source_provider,
+  sourceExternalId: row.source_external_id,
   title: row.title,
   version: row.remote_version,
   description: row.description,
@@ -125,6 +132,31 @@ export class LocalTaskRepository {
     const created = await this.find(ownerId, localId);
     if (!created) throw new Error('Local task could not be created.');
     return created;
+  }
+  async importTasks(ownerId: string, records: readonly ImportedTaskInput[]): Promise<{ imported: number; skipped: number; tasks: LocalTask[] }> {
+    const importedLocalIds: string[] = [];
+    let skipped = 0;
+    await this.db.withTransactionAsync(async () => {
+      for (const record of records) {
+        if (!record.provider.trim() || !record.externalId.trim()) throw new Error('Imported task provenance is required.');
+        const existing = await this.db.getFirstAsync<{ local_id: string }>('SELECT local_id FROM tasks WHERE owner_id = ? AND source_provider = ? AND source_external_id = ?', [ownerId, record.provider, record.externalId]);
+        if (existing) { skipped += 1; continue; }
+        const localId = newLocalId();
+        const operationId = newLocalId();
+        const timestamp = now();
+        await this.db.runAsync(
+          `INSERT INTO tasks (local_id, owner_id, remote_id, title, description, completed, latitude, longitude, location_accuracy, location_timestamp, created_at, updated_at, remote_version, local_updated_at, sync_state, remote_outcome, deleted_at, source_provider, source_external_id) VALUES (?, ?, NULL, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, 0, ?, 'pending_create', 'none', NULL, ?, ?)`,
+          [localId, ownerId, record.title, record.description, record.completed ? 1 : 0, timestamp, timestamp, timestamp, record.provider, record.externalId]
+        );
+        await this.db.runAsync(
+          `INSERT INTO sync_operations (operation_id, owner_id, task_local_id, kind, payload, expected_version, state, attempts, last_error, created_at, updated_at) VALUES (?, ?, ?, 'create', ?, NULL, 'pending', 0, NULL, ?, ?)`,
+          [operationId, ownerId, localId, JSON.stringify({ title: record.title, description: record.description, completed: record.completed }), timestamp, timestamp]
+        );
+        importedLocalIds.push(localId);
+      }
+    });
+    const tasks = (await Promise.all(importedLocalIds.map((localId) => this.find(ownerId, localId)))).filter((task): task is LocalTask => task !== null);
+    return { imported: tasks.length, skipped, tasks };
   }
 
   async updateOffline(ownerId: string, localId: string, patch: Partial<LocalTaskInput>, remoteOutcome: RemoteOutcome = 'none'): Promise<LocalTask> {
@@ -205,10 +237,18 @@ export class LocalTaskRepository {
   }
 
   async saveRemoteIfUnchanged(ownerId: string, localId: string, expectedLocalUpdatedAt: string, task: Task): Promise<{ task: LocalTask; applied: boolean }> {
-    const current = await this.find(ownerId, localId);
-    if (!current) throw new Error('Local task not found.');
-    if (current.localUpdatedAt !== expectedLocalUpdatedAt) return { task: current, applied: false };
-    return { task: await this.saveRemote(ownerId, task), applied: true };
+    return this.db.withTransactionAsync(async () => {
+      const row = await this.db.getFirstAsync<TaskRow>('SELECT * FROM tasks WHERE owner_id = ? AND local_id = ?', [ownerId, localId]);
+      if (!row) throw new Error('Local task not found.');
+      const current = rowToTask(row);
+      if (current.localUpdatedAt !== expectedLocalUpdatedAt) {
+        await this.db.runAsync('UPDATE tasks SET remote_id = ?, remote_version = ?, remote_outcome = ? WHERE owner_id = ? AND local_id = ?', [task.id, task.version, 'none', ownerId, localId]);
+        const refreshed = await this.db.getFirstAsync<TaskRow>('SELECT * FROM tasks WHERE owner_id = ? AND local_id = ?', [ownerId, localId]);
+        if (!refreshed) throw new Error('Local task not found.');
+        return { task: rowToTask(refreshed), applied: false };
+      }
+      return { task: await this.upsertRemote(ownerId, task, false), applied: true };
+    });
   }
 
   async mergeRemote(ownerId: string, tasks: Task[]): Promise<LocalTask[]> {
@@ -257,6 +297,41 @@ export class LocalTaskRepository {
     return rowToOperation(operation);
   }
 
+
+  async resolveWithRemote(ownerId: string, operationId: string, task: Task): Promise<LocalTask> {
+    return this.db.withTransactionAsync(async () => {
+      const operation = await this.db.getFirstAsync<SyncOperationRow>('SELECT * FROM sync_operations WHERE owner_id = ? AND operation_id = ? AND state IN (\'conflict\', \'review\')', [ownerId, operationId]);
+      if (!operation) throw new Error('Sync conflict is no longer available.');
+      const current = await this.db.getFirstAsync<TaskRow>('SELECT * FROM tasks WHERE owner_id = ? AND local_id = ?', [ownerId, operation.task_local_id]);
+      if (!current) throw new Error('Local task is no longer available.');
+      const newer = await this.db.getFirstAsync<{ count: number }>("SELECT COUNT(*) AS count FROM sync_operations WHERE owner_id = ? AND task_local_id = ? AND operation_id != ? AND state IN ('pending', 'sending', 'failed', 'conflict', 'review')", [ownerId, operation.task_local_id, operationId]);
+      if ((newer?.count ?? 0) > 0) {
+        await this.db.runAsync('UPDATE tasks SET remote_id = ?, remote_version = ?, remote_outcome = ? WHERE owner_id = ? AND local_id = ?', [task.id, task.version, 'none', ownerId, operation.task_local_id]);
+      } else {
+        await this.upsertRemote(ownerId, task, false);
+      }
+      await this.db.runAsync('UPDATE sync_operations SET state = ?, last_error = NULL, retry_after_at = NULL, updated_at = ? WHERE owner_id = ? AND operation_id = ?', ['confirmed', now(), ownerId, operationId]);
+      const result = await this.find(ownerId, operation.task_local_id);
+      if (!result) throw new Error('Resolved task is no longer available.');
+      return result;
+    });
+  }
+
+  async resolveRemoteDeletion(ownerId: string, operationId: string): Promise<LocalTask | null> {
+    return this.db.withTransactionAsync(async () => {
+      const operation = await this.db.getFirstAsync<SyncOperationRow>('SELECT * FROM sync_operations WHERE owner_id = ? AND operation_id = ? AND state IN (\'conflict\', \'review\')', [ownerId, operationId]);
+      if (!operation) throw new Error('Sync conflict is no longer available.');
+      const newer = await this.db.getFirstAsync<{ count: number }>("SELECT COUNT(*) AS count FROM sync_operations WHERE owner_id = ? AND task_local_id = ? AND operation_id != ? AND state IN ('pending', 'sending', 'failed', 'conflict', 'review')", [ownerId, operation.task_local_id, operationId]);
+      await this.db.runAsync('UPDATE sync_operations SET state = ?, last_error = NULL, retry_after_at = NULL, updated_at = ? WHERE owner_id = ? AND operation_id = ?', ['confirmed', now(), ownerId, operationId]);
+      if ((newer?.count ?? 0) === 0) {
+        await this.db.runAsync('DELETE FROM tasks WHERE owner_id = ? AND local_id = ?', [ownerId, operation.task_local_id]);
+        return null;
+      }
+      await this.db.runAsync("UPDATE sync_operations SET state = 'review', last_error = ?, updated_at = ? WHERE owner_id = ? AND task_local_id = ? AND operation_id != ? AND state IN ('pending', 'sending', 'failed', 'conflict', 'review')", ['La tarea remota fue eliminada; revisa tus cambios locales.', now(), ownerId, operation.task_local_id, operationId]);
+      await this.db.runAsync('UPDATE tasks SET remote_id = NULL, remote_version = 0, remote_outcome = ? WHERE owner_id = ? AND local_id = ?', ['none', ownerId, operation.task_local_id]);
+      return this.find(ownerId, operation.task_local_id);
+    });
+  }
   listOperations(ownerId: string) {
     return this.db.getAllAsync<SyncOperationRow>("SELECT * FROM sync_operations WHERE owner_id = ? AND state IN ('pending', 'sending', 'failed', 'conflict', 'review') ORDER BY created_at ASC", [ownerId]).then((rows) => rows.map(rowToOperation));
   }
