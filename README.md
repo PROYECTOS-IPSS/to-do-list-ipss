@@ -1,443 +1,281 @@
 # Task Manager Mobile
 
-Aplicación móvil académica para gestionar tareas con autenticación, fotografías, ubicación GPS y notas de voz.
+Aplicación académica de gestión de tareas para Android, desarrollada con React Native y Expo. Funciona primero sobre almacenamiento local y puede sincronizar tareas y fotografías con una API propia cuando existe una sesión remota y conectividad.
 
-Repositorio monorepo npm:
+Funcionalidades principales:
 
-- `mobile/`: React Native + Expo + Expo Router + TypeScript.
-- `backend/`: API REST Express + TypeScript.
-- PostgreSQL: persistencia relacional mediante Prisma.
-- `postman/`: colección de pruebas manuales de la API.
+- registro, login, logout y recuperación de sesión;
+- creación, edición, finalización, reapertura y eliminación de tareas;
+- trabajo local inmediato con SQLite;
+- sincronización opcional de tareas y fotografías;
+- ubicación GPS asociada a tareas;
+- cámara, fotografías locales y copias remotas protegidas;
+- notas de voz locales con grabación, preview, reproducción y eliminación;
+- importación selectiva de tareas ficticias desde JSONPlaceholder;
+- interfaz en español con sistema visual Mulberry Night.
 
-## Funcionalidades actuales
+## Stack resumido
 
-- Registro e inicio de sesión.
-- JWT con sesión persistente.
-- JWT almacenado exclusivamente en `expo-secure-store`.
-- CRUD de tareas.
-- Completar y reabrir tareas.
-- Eliminación con confirmación visual propia.
-- Persistencia local SQLite por usuario para tareas y fotografías cuando red no está disponible.
-- Estados de carga, error, retry, éxito y vacío.
-- Feedback visual para operaciones importantes.
-- Cámara contextual para fotografías de tareas.
-- Imágenes asociadas con previews locales y previews protegidas desde API.
-- GPS contextual con latitude, longitude, accuracy y timestamp.
-- Notas de voz con grabación, preview, reproducción, duración y eliminación.
-- Archivos de imágenes y audios protegidos mediante Bearer JWT.
-- UI en español.
-- Design System dark basado en NativeWind/TailwindCSS.
-- Safe Area y Status Bar configuradas para Android.
-- Modales visuales para confirmaciones destructivas.
-- Importación selectiva de tareas de demostración desde JSONPlaceholder, con validación, procedencia y deduplicación por cuenta.
-- Verificación P5 documentada en `docs/P5_TEST_MATRIX.md`, `docs/P5_TEST_RESULTS.md` y guía de Development Build Android.
+| Área | Tecnologías principales |
+|---|---|
+| Mobile | Expo SDK 57, React Native 0.86.3, React 19.2.3, Expo Router, TypeScript 6, NativeWind 4 y SQLite |
+| Backend | Express 5, TypeScript 5.9, Zod, JWT, Multer y Prisma 6 |
+| Datos remotos | PostgreSQL 16.6 |
+| Desarrollo | Yarn Classic 1.22.22, Docker Compose y Expo Development Build |
+| Pruebas | Jest, Testing Library, Supertest y ts-jest |
+
+## Estado funcional
+
+| Funcionalidad | Local/offline | Remota | Estado |
+|---|---|---|---|
+| Autenticación | Sesión e identidad previamente validadas conservadas en SecureStore | JWT emitido y validado por backend | Vigente |
+| Tareas | SQLite por usuario; cambios inmediatos | PostgreSQL mediante sincronización | Vigente |
+| Fotografías | Archivo en filesystem y metadata en SQLite | Upload, metadata y descarga protegida | Vigente |
+| GPS | Coordenadas completas persistidas con tarea | Incluido al crear o actualizar tarea | Vigente |
+| Notas de voz | Archivo y metadata locales; reproducción sin conexión | API backend existente, no consumida por flujo móvil estable | Parcial deliberado |
+| Importación | Selección y procedencia persistidas localmente | JSONPlaceholder como fuente ficticia; al sincronizar, checkout móvil envía la tarea sin procedencia externa | Vigente con límite documentado |
+
+“Parcial deliberado” significa que audio remoto móvil no pertenece al alcance estable actual. Grabación y reproducción local sí funcionan; upload, descarga y sincronización móvil de audio no están conectados.
 
 ## Arquitectura
 
 ```text
-React Native + Expo
-        │
-        │ Bearer JWT / HTTP
-        ▼
-Express API REST
-        │
-        │ Prisma
-        ▼
-PostgreSQL
+Aplicación móvil
+React Native + Expo Router
+SQLite + SecureStore + filesystem local
+              ↕ HTTP / Bearer JWT
+Backend Express + Zod
+              ↕ Prisma
+PostgreSQL + volumen de uploads
 ```
 
-### Mobile
+### Responsabilidades de almacenamiento
 
-Expo Router monta las pantallas. `AuthProvider` recupera la sesión desde SecureStore y protege el acceso funcional a Home.
+- **SQLite** es fuente local inmediata para UI, tareas, metadata de fotografías, metadata de audio y cola de sincronización. Los registros se aíslan por `ownerId`.
+- **PostgreSQL** conserva usuarios, tareas remotas, versiones, mutaciones idempotentes y metadata de attachments. API admite procedencia externa, pero sincronización móvil vigente no la envía para tareas importadas.
+- **SecureStore** conserva JWT e identidad local previamente validada. Credenciales y tokens no van a AsyncStorage ni SQLite.
+- **Filesystem del dispositivo** conserva fotografías y notas de voz locales. SQLite guarda URI y metadata, no binarios.
+- **Volumen Docker de uploads** conserva binarios remotos bajo `backend/uploads` dentro del contenedor. No existe una ruta pública `/uploads`; las descargas válidas pasan por endpoints autenticados.
+- **AsyncStorage** conserva solo preferencias no sensibles, actualmente filtro de tareas.
 
-La UI se separa en:
+SQLite y PostgreSQL no cumplen la misma función. Cada operación móvil escribe primero una identidad local estable y puede reconciliar después su representación remota.
 
-- `mobile/app/`: pantallas y navegación.
-- `mobile/src/auth/`: estado de sesión.
-- `mobile/src/services/`: API y capacidades nativas.
-- `mobile/src/ui/`: tokens, componentes y composición visual.
+### `localId`, `remoteId` y sincronización
 
-### Backend
+- `localId` identifica la tarea en SQLite y en la UI. Se usa también como key estable de listas.
+- `remoteId` es UUID asignado por PostgreSQL después de creación remota; puede ser `null` mientras la tarea existe solo localmente.
+- `remoteVersion` conserva versión conocida del servidor. Update y delete pueden enviar `If-Match`; versión stale produce `409 TASK_VERSION_CONFLICT`.
+- `sync_operations` es cola durable para create, update, delete e image. Cada operación conserva `operationId`, payload, intentos y estado.
+- `operationId` se envía como `Idempotency-Key` donde corresponde. Repetir misma clave con misma solicitud devuelve mismo resultado lógico; reutilizarla con solicitud distinta devuelve `409 IDEMPOTENCY_KEY_REUSED`.
+- Conflictos no se resuelven silenciosamente. UI permite aceptar servidor o conservar cambio local con versión remota actualizada.
+- Sincronización puede iniciarse manualmente y al volver app a foreground con sesión remota válida. No corre con app cerrada ni como tarea background.
+- Fotografías quedan locales hasta confirmación remota. Eliminación física ocurre solo después de actualizar metadata o confirmar flujo correspondiente; filesystem y PostgreSQL no forman una transacción única.
+- Tareas importadas entran a cola como tareas normales, pero `sourceProvider`/`sourceExternalId` quedan solo en SQLite en checkout actual; deduplicación de reimportación móvil sigue siendo local.
 
-El backend separa:
+Ownership siempre deriva de `userId` del JWT. Cliente nunca elige propietario mediante body o query.
 
-- routes;
-- middleware de auth y validación;
-- controllers;
-- services;
-- schemas Zod;
-- Prisma;
-- almacenamiento local de archivos.
-
-Cada tarea y attachment se consulta usando el `userId` extraído del JWT. El cliente nunca controla ownership enviando un `userId` propio.
-
-## Almacenamiento
-
-| Dato | Ubicación |
-|---|---|
-| JWT | `expo-secure-store` |
-| Tareas locales | SQLite (`expo-sqlite`), aisladas por usuario |
-| Fotografías locales | `FileSystem.documentDirectory`, aisladas por usuario |
-| Preferencias de UI/filtro | AsyncStorage |
-| Usuarios | PostgreSQL vía Prisma |
-| Tareas | PostgreSQL vía Prisma |
-| Ubicación de tarea | PostgreSQL vía Prisma |
-| Metadata de imágenes | PostgreSQL vía Prisma |
-| Metadata de audios | PostgreSQL vía Prisma |
-| Archivo de imagen | `backend/uploads/images/` en desarrollo |
-| Archivo de audio | `backend/uploads/audios/` en desarrollo |
-
-Los archivos privados no se exponen mediante `express.static`. Se sirven mediante endpoints autenticados que validan ownership.
-
-## Stack real
-
-### Mobile
-
-Versiones declaradas en `mobile/package.json`:
-
-- React Native `0.86.3`.
-- Expo `~57.0.17`.
-- Expo Router `~57.0.18`.
-- `expo-constants` `~57.0.17` y `expo-linking` `~57.0.9`.
-- React `19.2.3`.
-- TypeScript `~6.0.3`.
-- NativeWind `4.2.6`.
-- TailwindCSS `^3.4.17`.
-- `react-native-css-interop` `0.2.6`.
-- `react-native-reanimated` `4.5.1` + `react-native-worklets` `0.10.1`.
-- `react-native-safe-area-context` `~5.7.0`.
-- `@react-native-async-storage/async-storage` `^2.2.0`.
-- `react-native-screens` `~4.26.0`.
-- `expo-secure-store` `~57.0.3`.
-- `expo-image-picker` `~57.0.15`.
-- `expo-camera` `~57.0.4`.
-- `expo-location` `~57.0.15`.
-- `expo-file-system` `~57.0.6`.
-- `expo-sqlite` `~57.0.2`.
-- `expo-asset` `~57.0.16`.
-- `expo-dev-client` `~57.0.18`.
-- `expo-status-bar` `~57.0.1` + `expo-system-ui` `~57.0.3`.
-- Zod `^4.4.3`.
-- Jest `~29.7.0` y ts-jest `^29.4.12` para tests móviles.
-
-### Backend
-
-Versiones declaradas en `backend/package.json`:
-
-- Express `^5.1.0`.
-- TypeScript `^5.9.2`.
-- Prisma y `@prisma/client` `^6.14.0`.
-- PostgreSQL.
-- Zod `^4.0.17`.
-- bcryptjs `^3.0.3`.
-- jsonwebtoken `^9.0.3`.
-- Multer `^2.2.0`.
-- Jest `^30.0.5`.
-- Supertest `^7.1.4`.
-- Nodemon, tsx y ts-jest.
-
-## Estructura actual
+## Estructura
 
 ```text
-.
-├── mobile/
-│   ├── app/
-│   │   ├── _layout.tsx
-│   │   ├── index.tsx
-│   │   ├── auth/
-│   │   │   ├── login.tsx
-│   │   │   └── register.tsx
-│   │   └── tasks/
-│   │       └── [id].tsx
-│   ├── src/
-│   │   ├── auth/
-│   │   ├── services/
-│   │   └── ui/
-│   ├── android/
-│   ├── app.json
-│   ├── babel.config.js
-│   ├── global.css
-│   ├── metro.config.js
-│   ├── nativewind-env.d.ts
-│   ├── tailwind.config.js
-│   ├── eas.json
-│   └── package.json
-├── backend/
-│   ├── prisma/
-│   ├── src/
-│   ├── tests/
-│   ├── uploads/
-│   ├── .env.example
-│   └── package.json
-├── postman/
-│   └── task-manager.postman_collection.json
-├── AGENTS.md
-├── ARQUITECTURA.md
-├── package.json
-└── README.md
+mobile/                         Aplicación Expo, UI, servicios y persistencia local
+backend/                        API Express
+backend/prisma/                 Esquema y migraciones PostgreSQL
+scripts/                        Setup raíz y orquestación Docker/Metro
+postman/                        Colección manual de API
+
+docs/                           Informes históricos y guías vigentes
+docker-compose.yml              PostgreSQL, migraciones y backend
+.env.example                    Plantilla segura del único entorno local
+package.json                    Workspaces y comandos raíz
 ```
 
-## Requisitos
+## Prerrequisitos
 
-- Node.js `>=20.19.4` y Yarn Classic `1.22.22`.
-- Java 21.
-- Android SDK con platform/build-tools 36 y NDK `27.1.12297006`.
-- PostgreSQL accesible.
-- Emulador o dispositivo Android para validación física.
-- Cuenta EAS únicamente si se requiere construir en EAS.
+Entorno reproducible comprobado por configuración vigente:
 
-## Instalación
+- Node.js `24.15.0`;
+- Yarn Classic `1.22.22`;
+- Docker Engine o Docker Desktop con Docker Compose v2;
+- dispositivo o emulador Android con Expo Development Build del proyecto instalado;
+- teléfono y host en misma red local para pruebas físicas;
+- puertos de Metro y `BACKEND_PORT` accesibles desde dispositivo.
+
+Docker no se instala ni se inicia mediante `yarn setup`; script solo valida disponibilidad de `docker compose`. APIs nativas usadas por SecureStore, SQLite, cámara, GPS y audio requieren Development Build. Expo Go no es superficie de validación del proyecto.
+
+## Instalación automática
+
+Desde raíz:
 
 ```bash
-git clone <URL_DEL_REPOSITORIO>
-cd to-do-list
 yarn install --frozen-lockfile
+yarn setup --non-interactive --api-url http://IP_LAN_DEL_HOST:3000
+yarn dev:docker
+```
 
-Los workspaces raíz son `mobile` y `backend`.
+### Qué hace `yarn setup`
+
+1. valida disponibilidad de Node.js, Yarn y Docker Compose;
+2. crea `.env` raíz desde `.env.example` solo cuando falta;
+3. completa `POSTGRES_DB`, `POSTGRES_USER` y `BACKEND_PORT` si están vacíos;
+4. reemplaza placeholders de `POSTGRES_PASSWORD` y `JWT_SECRET` con valores aleatorios generados por `node:crypto`;
+5. valida puerto y URL pública;
+6. conserva valores válidos existentes.
+
+Es idempotente: repetirlo no regenera secretos ya configurados ni sobrescribe valores válidos. No inicia Docker.
+
+Precedencia de URL:
+
+1. `--api-url` explícito;
+2. `EXPO_PUBLIC_API_URL` ya presente en `.env`;
+3. candidato IPv4 LAN, solo en modo interactivo y cuando existe exactamente uno;
+4. error con candidatas disponibles cuando falta URL o hay ambigüedad.
+
+Modo no interactivo falla si falta URL. `.env.example` contiene una IP de ejemplo, no una detección automática; usar `--api-url` con IP real evita conservar placeholder.
+
+```bash
+# Interactivo: solo autoselecciona cuando falta URL y existe una candidata única
+yarn setup
+
+# Reproducible y recomendado
+yarn setup --non-interactive --api-url http://IP_LAN_DEL_HOST:3000
+```
+
+### Qué hace `yarn dev:docker`
+
+1. ejecuta `yarn setup --non-interactive`;
+2. construye e inicia Compose;
+3. espera PostgreSQL saludable;
+4. aplica `prisma migrate deploy` mediante servicio `migrate`;
+5. inicia backend;
+6. consulta `GET /ready` hasta 120 segundos;
+7. inicia Metro en host con perfil Development Client.
+
+`Ctrl+C` detiene Metro y ejecuta Compose `down`. Volúmenes nombrados permanecen.
 
 ## Variables de entorno
 
-### Backend: `backend/.env`
+Existe un único `.env` local en raíz:
 
-Copiar `backend/.env.example`:
+| Variable | Consumidor | Uso |
+|---|---|---|
+| `POSTGRES_DB` | Compose | Nombre de base Docker |
+| `POSTGRES_USER` | Compose | Usuario PostgreSQL Docker |
+| `POSTGRES_PASSWORD` | Compose | Password PostgreSQL Docker |
+| `JWT_SECRET` | Backend | Firma y validación JWT |
+| `BACKEND_PORT` | Compose/scripts | Puerto publicado del backend en host |
+| `EXPO_PUBLIC_API_URL` | Metro/mobile | URL HTTP pública alcanzable por dispositivo |
 
-```env
-PORT=3000
-DATABASE_URL=postgresql://usuario:contraseña@localhost:5432/task_manager
-JWT_SECRET=reemplazar-por-un-secreto-local-largo
-```
+Reglas:
 
-- `PORT`: puerto HTTP; por defecto `3000`.
-- `DATABASE_URL`: conexión PostgreSQL requerida por Prisma.
-- `JWT_SECRET`: secreto local para firmar/verificar JWT.
-- `UPLOAD_DIR`: variable opcional consumida por el servicio de archivos; si no se define, usa `uploads`. No está incluida en la plantilla actual.
+- `.env` raíz está ignorado por Git y Docker build context;
+- no copiar `.env` a `mobile/` ni `backend/`;
+- solo `EXPO_PUBLIC_API_URL` se entrega a Metro y puede formar parte del bundle;
+- nunca usar prefijo `EXPO_PUBLIC_` para secretos;
+- `BACKEND_PORT=3000` exige normalmente `EXPO_PUBLIC_API_URL=http://IP_LAN_DEL_HOST:3000`;
+- no versionar valores reales de password, JWT, token o credenciales.
 
-### Mobile: `mobile/.env`
+## Comandos vigentes
 
-Copiar `mobile/.env.example`:
+Todos desde raíz salvo indicación contraria.
 
-```env
-EXPO_PUBLIC_API_URL=http://localhost:3000
-```
+| Acción | Comando |
+|---|---|
+| Instalar dependencias | `yarn install --frozen-lockfile` |
+| Preparar `.env` | `yarn setup --non-interactive --api-url http://IP_LAN_DEL_HOST:3000` |
+| Docker + backend + Metro | `yarn dev:docker` |
+| Estado Compose | `yarn status:docker` |
+| Logs Compose | `yarn logs:docker` |
+| Detener Compose | `yarn stop:docker` |
+| Rebuild backend/migrate sin cache | `yarn rebuild:docker` |
+| Metro normal | `yarn mobile` |
+| Metro Development Client | `yarn mobile:dev-client` |
+| Backend host en desarrollo | `yarn backend` |
+| Backend host | `yarn backend:start` |
+| Typecheck producto | `yarn typecheck` |
+| Typecheck tests backend | `yarn typecheck:tests` |
+| Lint monorepo | `yarn lint` |
+| Todas las pruebas | `yarn test` |
+| Pruebas backend | `yarn test:backend` |
+| Pruebas mobile | `yarn test:mobile` |
+| Generar Prisma Client | `yarn workspace task-manager-backend prisma:generate` |
+| Validar Prisma schema | `yarn workspace task-manager-backend exec prisma validate` |
+| Estado de migraciones | `yarn workspace task-manager-backend exec prisma migrate status` |
+| Development Build Android local | `yarn workspace task-manager-mobile android` |
 
-En un dispositivo Android físico, usar la IP LAN del equipo donde corre el backend, por ejemplo `http://192.168.x.x:3000`.
+Backend ejecutado directamente en host requiere `DATABASE_URL`, `JWT_SECRET` y opcionalmente `PORT`/`UPLOAD_DIR`; flujo recomendado de desarrollo es Docker porque construye esas variables desde `.env` raíz.
 
-Los archivos `.env` están ignorados por Git. Las plantillas no contienen secretos reales.
+## Docker Compose
 
-## PostgreSQL y Prisma
+Servicios:
 
-Crear la base PostgreSQL indicada por `DATABASE_URL` y ejecutar desde la raíz:
+- `db`: PostgreSQL `16.6-bookworm`, interno como `db:5432`;
+- `migrate`: espera DB saludable y ejecuta `prisma migrate deploy` una vez;
+- `backend`: espera migración exitosa, publica puerto `${BACKEND_PORT}:3000` y usa volumen de uploads;
+- Metro: corre en host, nunca dentro de Compose.
 
-```bash
-npm run prisma:generate
-npm run prisma:migrate
-```
+Readiness:
 
-Comprobar el estado desde el workspace backend:
+- `GET /health` confirma proceso HTTP y devuelve `200 {"status":"ok"}`;
+- `GET /ready` consulta PostgreSQL y devuelve `200 {"status":"ready"}` o `503 {"status":"not-ready"}`.
 
-```bash
-npm --workspace backend exec prisma validate
-npm --workspace backend exec prisma migrate status
-```
+Volúmenes:
 
-El esquema actual contiene:
+- `task-manager-dev-postgres`: datos PostgreSQL;
+- `task-manager-dev-uploads`: imágenes y audios almacenados por backend.
 
-- `User`;
-- `Task`;
-- `TaskImage`;
-- `TaskAudio`.
+`yarn stop:docker` y `Ctrl+C` usan `docker compose down`; eliminan contenedores/red, no volúmenes.
 
-Las relaciones usan ownership por usuario y borrado en cascada de metadata. La eliminación física de archivos se intenta desde el servicio de almacenamiento.
+> No usar `docker compose down -v` salvo que se quiera eliminar deliberadamente base de datos y archivos subidos.
 
-No existe seed configurado.
+## Uso desde dispositivo Android
 
-## Ejecución local
+1. Obtener IPv4 LAN del host en interfaz física conectada a misma red del teléfono.
+2. Evitar direcciones de VPN, bridge Docker o interfaz inactiva.
+3. Configurar URL usando puerto publicado:
 
-### Backend
+   ```bash
+   yarn setup --non-interactive --api-url http://IP_LAN_DEL_HOST:3000
+   ```
 
-Desde la raíz:
+4. Ejecutar `yarn dev:docker`.
+5. Confirmar desde host `http://127.0.0.1:3000/ready` y, si red lo permite, desde teléfono `http://IP_LAN_DEL_HOST:3000/ready`.
+6. Abrir Development Build ya instalado y conectarlo al Metro mostrado por terminal/QR.
+7. Si falla conexión, revisar que teléfono y host compartan LAN, desactivar VPN conflictiva y permitir `BACKEND_PORT`/puerto Metro en firewall.
 
-```bash
-yarn run backend
-```
+`localhost` o `127.0.0.1` dentro del teléfono apunta al teléfono, no al computador. Postman ejecutado en host sí puede usar `http://localhost:3000`.
 
-Equivalentes definidos:
+## Pruebas y alcance
 
-```bash
-yarn run backend:start
-yarn workspace task-manager-backend run dev
-yarn workspace task-manager-backend start
-```
-
-Health check:
-
-```text
-GET http://localhost:3000/health
-```
-
-### Mobile y Metro
-
-Desde la raíz:
-
-```bash
-yarn run mobile
-yarn run mobile:dev-client
-```
-
-Desde `mobile/`:
-
-```bash
-yarn start
-yarn run start:dev-client
-```
-
-### Development Build Android
+Gates completos:
 
 ```bash
-yarn workspace task-manager-mobile android
-```
-
-También puede ejecutarse desde `mobile/`:
-
-```bash
-yarn android
-```
-
-Usar Development Build porque la aplicación utiliza módulos nativos como SecureStore, cámara, ubicación y audio.
-
-## API REST actual
-
-### Auth
-
-```text
-POST /api/auth/register
-POST /api/auth/login
-GET  /api/auth/me
-POST /api/auth/logout
-```
-
-### Tasks
-
-```text
-POST   /api/tasks
-GET    /api/tasks
-GET    /api/tasks/:id
-PATCH  /api/tasks/:id
-DELETE /api/tasks/:id
-```
-
-### Images
-
-```text
-POST   /api/tasks/:id/images
-GET    /api/tasks/:id/images
-DELETE /api/tasks/:id/images/:imageId
-GET    /api/tasks/:id/images/:imageId/file
-```
-
-### Audio
-
-```text
-POST   /api/tasks/:id/audios
-GET    /api/tasks/:id/audios
-DELETE /api/tasks/:id/audios/:audioId
-GET    /api/tasks/:id/audios/:audioId/file
-```
-
-Las rutas privadas requieren `Authorization: Bearer <token>`. Ownership se valida con el JWT.
-
-Códigos utilizados por el contrato actual:
-
-- `200`: lecturas, login y actualizaciones.
-- `201`: registro y creación.
-- `204`: logout y eliminaciones.
-- `400`: payload, parámetros, coordenadas, archivos o duración inválidos.
-- `401`: sesión ausente/inválida o credenciales incorrectas.
-- `404`: ruta, tarea o attachment inexistente; recursos de otro usuario no se revelan.
-- `409`: email duplicado.
-- `500`: error interno.
-
-`403` y `422` no son utilizados por el contrato actual.
-
-## Design System y UI
-
-NativeWind/TailwindCSS es el sistema de estilos principal.
-
-Configuración:
-
-- `mobile/tailwind.config.js`.
-- `mobile/metro.config.js`.
-- `mobile/global.css`.
-- `mobile/src/ui/tokens.json`.
-- `mobile/src/ui/tokens.ts`.
-
-Componentes compartidos:
-
-- `AppLogo`;
-- `AppHeader`;
-- `AppText`;
-- `AppButton`;
-- `AppInput`;
-- `AppImage`;
-- `AppBadge`;
-- `AppFeedback`;
-- `AppConfirmModal`;
-- `Screen`;
-- `AuthScreen`;
-- `Card`;
-- `TaskCard`;
-- `StateMessage`.
-
-La UI actual utiliza identidad dark, safe area, status bar coherente, textos en español, estados de carga/error/vacío y modales visuales para acciones destructivas.
-
-## Testing
-
-Suite backend y mobile:
-
-```bash
+yarn typecheck
+yarn typecheck:tests
+yarn lint
 yarn test
 ```
 
-El comando ejecuta backend y mobile; falla si falla cualquiera.
+Conteo verificado en F.1:
 
-Suites separadas:
+- backend: **8 suites, 80 tests**;
+- mobile: **14 suites, 127 tests**;
+- total: **22 suites, 207 tests**;
+- snapshots: 0.
 
-```bash
-yarn run test:backend
-yarn run test:mobile
-```
+Jest/Supertest cubre contratos HTTP, auth, ownership, tareas, ubicación, attachments, idempotencia y validación. Jest mobile cubre esquemas, servicios, SQLite, sincronización, importación y componentes. Estos gates no prueban bridge Android, permisos reales, cámara, GPS, micrófono, reproducción, gestos ni conectividad física.
 
-Comprobaciones TypeScript:
-
-```bash
-yarn run typecheck
-```
-
-Comprueba mobile y backend.
-
-Lint:
+Validación adicional según cambio:
 
 ```bash
-yarn run lint
-```
-
-Prisma:
-
-```bash
-yarn run prisma:generate
+docker compose -p task-manager-dev -f docker-compose.yml config --quiet
 yarn workspace task-manager-backend exec prisma validate
 yarn workspace task-manager-backend exec prisma migrate status
-```
-
-Android:
-
-```bash
 yarn workspace task-manager-mobile android
 ```
 
-Resultado comprobado: backend 7 suites / 61 tests y mobile 1 suite / 48 tests aprobados; exportación Android y compilación `assembleDebug` aprobadas.
+Docker, Prisma contra DB, Gradle, dispositivo físico y EAS se ejecutan solo cuando cambio lo requiere. No son necesarios para cambios puramente documentales.
 
-## Postman
+## API y Postman
 
 Colección:
 
@@ -445,148 +283,60 @@ Colección:
 postman/task-manager.postman_collection.json
 ```
 
-Grupos incluidos:
+### Flujo recomendado
 
-- Auth;
-- Tasks;
-- Images;
-- Audio.
+1. iniciar backend;
+2. importar colección;
+3. mantener `baseUrl=http://localhost:3000` cuando Postman corre en host;
+4. ejecutar Health y Ready;
+5. registrar usuario ficticio y hacer Login;
+6. confirmar que Login guardó `token` como variable de colección;
+7. ejecutar Me;
+8. crear tarea y reutilizar `taskId`/`taskVersion` capturados;
+9. listar, obtener y actualizar tarea;
+10. seleccionar archivos locales manualmente para multipart;
+11. ejecutar pruebas de validación, ownership, conflicto e idempotencia;
+12. ejecutar deletes y Logout al final.
 
-Variables de colección:
+Variables incluidas: `baseUrl`, `email`, `password`, `token`, `otherEmail`, `otherPassword`, `otherToken`, `taskId`, `taskVersion`, `imageId`, `audioId`, `createIdempotencyKey` e `imageIdempotencyKey`. Credenciales son datos locales evidentemente ficticios; tokens e IDs comienzan vacíos.
 
-- `baseUrl`;
-- `token`;
-- `taskId`;
-- `otherTaskId`;
-- `imageId`;
-- `audioId`.
+### Contratos relevantes
 
-Importar la colección en Postman y configurar las variables del entorno local. Las solicitudes multipart de imágenes y audio requieren seleccionar manualmente archivos locales en Postman. No se guardan tokens ni secretos en el repositorio.
+- Rutas privadas: `Authorization: Bearer {{token}}`.
+- Create task y upload image de colección: `Idempotency-Key`; claves se generan solo si variable correspondiente está vacía y permanecen estables para replay.
+- Update/delete: `If-Match` acepta versión decimal opcional; colección usa `{{taskVersion}}` sin sintaxis ETag añadida.
+- Imágenes: multipart `file`; MIME permitidos `image/jpeg`, `image/png`, `image/webp`; máximo 10 MiB.
+- Audio backend: multipart `file` + `duration`; MIME `audio/mp4`, `audio/mpeg`, `audio/aac`, `audio/wav`, `audio/x-m4a`; máximo 10 MiB y duración mayor que 0 hasta 3600 segundos.
+- No fijar manualmente `Content-Type: multipart/form-data`; Postman genera boundary.
+- Descargas usan `/api/tasks/:taskId/images/:imageId/file` y `/api/tasks/:taskId/audios/:audioId/file` con Bearer. Nunca usar `/uploads` ni token en query.
+- Recursos ajenos devuelven 404 para no revelar existencia.
 
-Si Newman está instalado, puede ejecutarse:
+Scripts Postman guardan token/IDs/versiones únicamente cuando respuesta válida contiene campo esperado. No imprimen secretos. Archivos binarios y rutas locales no están versionados: usuario debe seleccionarlos en Postman.
 
-```bash
-newman run postman/task-manager.postman_collection.json --env-var baseUrl=http://127.0.0.1:3000
-```
+## Limitaciones vigentes
+
+- Audio móvil remoto fuera de alcance: cliente estable conserva notas de voz solo localmente, aunque backend mantiene API de audio para pruebas directas.
+- Sincronización no corre con app cerrada, no usa background task y no resuelve conflictos silenciosamente.
+- Filesystem local y PostgreSQL no ofrecen transacción distribuida única.
+- Multipart valida MIME declarado por cliente, no magic bytes.
+- APIs nativas requieren Development Build y dispositivo Android físico para validación completa.
+- Cámara, GPS, audio, lector de pantalla, fuente aumentada y gestos deben validarse físicamente.
+- JSONPlaceholder contiene datos ficticios; importación sirve como demostración, no como fuente confiable.
+- `ExampleBox` usa scroll interno y catálogo acotado a máximo 200 registros; catálogo grande requiere otra estrategia.
+- EAS, Gradle, emuladores y contenedores no se ejecutan automáticamente por gates Jest/TypeScript.
+- No existe deployment productivo ni perfil EAS `production` configurado.
+- `uploads` local/volumen Docker es apropiado para desarrollo académico, no almacenamiento productivo distribuido.
+- Logout backend es stateless; aplicación elimina sesión local, servidor no mantiene blacklist JWT.
 
 ## Seguridad
 
-- Contraseñas hasheadas con bcryptjs en backend.
-- PasswordHash nunca se devuelve al cliente.
-- JWT firmado con `JWT_SECRET` y almacenado únicamente en SecureStore en mobile.
-- AsyncStorage reservado para preferencias no sensibles.
-- Zod valida cuerpos, parámetros y queries.
-- Ownership se obtiene exclusivamente del JWT.
-- Endpoints privados requieren Bearer JWT.
-- Archivos privados no se sirven mediante `express.static`.
-- MIME y tamaño de uploads tienen límites.
-- Duración de audio limitada a 3.600 segundos.
-- `.env` y uploads locales están ignorados por Git.
-- Errores de producción no exponen stack traces.
+- Passwords se hashean con bcryptjs; `passwordHash` no se devuelve.
+- JWT viaja solo en header Bearer y se guarda en SecureStore.
+- Zod valida cuerpos, parámetros y queries en límites HTTP.
+- Ownership usa JWT y filtros por usuario/tarea/attachment.
+- Archivos remotos se descargan mediante endpoints protegidos; `/uploads` no se expone con `express.static`.
+- `.env`, uploads y tokens reales no se versionan.
 
-## Deployment
+## Uso académico
 
-### Backend
-
-Actualmente no existe proveedor ni infraestructura de producción configurada en el repositorio.
-
-Procedimiento reproducible para un entorno que proporcione Node.js y PostgreSQL:
-
-```bash
-npm install
-npm run prisma:generate
-npm --workspace backend exec prisma migrate status
-npm --workspace backend exec prisma migrate deploy
-npm --workspace backend start
-```
-
-Configurar en el entorno de deployment:
-
-- `PORT`;
-- `DATABASE_URL`;
-- `JWT_SECRET`;
-- `UPLOAD_DIR`.
-
-El almacenamiento local `uploads/` es apropiado para desarrollo académico. Producción requiere almacenamiento persistente/objetos externo, que no está configurado aquí.
-
-### Mobile Android
-
-Configuración comprobada:
-
-- package: `com.taskmanager.mobile`;
-- owner EAS: `wuanpack`;
-- projectId EAS presente en `mobile/app.json`;
-- `mobile/eas.json` define únicamente `development`;
-- `developmentClient: true`;
-- `distribution: internal`.
-
-Development Build local:
-
-```bash
-npm run android --workspace mobile
-```
-
-EAS Development Build, usando el perfil existente:
-
-```bash
-npx eas-cli login
-npx eas-cli build --profile development --platform android
-```
-
-No existe perfil `production` en `mobile/eas.json`; no se documenta un comando de producción inexistente.
-
-## Actualizar el proyecto
-
-1. Actualizar el código.
-2. Ejecutar `npm install`.
-3. Revisar cambios de dependencias.
-4. Ejecutar `npm run prisma:generate` si cambió Prisma o se reinstalaron dependencias.
-5. Ejecutar migraciones solo si existen migraciones pendientes.
-6. Ejecutar `npm test`.
-7. Ejecutar `npm run typecheck`.
-8. Ejecutar `npm run lint`.
-9. Ejecutar el Android debug build.
-10. Probar la aplicación en Development Build.
-
-Cambios JS/TS/UI normalmente requieren Metro o recarga del Development Build existente. Cambios de dependencias nativas, permisos, Expo plugins o configuración Android requieren reconstruir Development Build con `npm run android --workspace mobile` o el perfil EAS `development`.
-
-## Limitaciones conocidas
-
-- `uploads/` local es almacenamiento de desarrollo académico.
-- El MIME multipart es declarado por el cliente; no hay inspección magic-byte.
-- Los tests de attachments mockean Prisma y no sustituyen una prueba completa de disco.
-- Logout backend es stateless; el servidor no mantiene blacklist de JWT.
-- Home obtiene metadata de imágenes por tarea usando servicios existentes; un backend futuro podría incluir previews resumidas en la lista para evitar N+1.
-- No existe sincronización automática, queue de requests ni resolución de conflictos; eso queda fuera de P2.
-- No existe tracking GPS en background ni grabación de audio en background.
-
-## Cumplimiento de la rúbrica
-
-- Periféricos: cámara para imágenes, GPS asociado y audio asociado a tareas.
-- Permisos: solicitudes contextuales de cámara, ubicación y micrófono.
-- Tests de periféricos: mocks de GPS/audio y validación Android.
-- API: Express, JWT, Zod, Prisma, PostgreSQL, CRUD y attachments.
-- Tests API: Jest, Supertest, validación, ownership, JWT y uploads.
-
-## Licencia y uso académico
-
-Proyecto académico para Desarrollo de Aplicaciones Móviles. No contiene secretos reales en documentación; cada entorno debe usar sus propias credenciales locales.
-
-## Entorno local Docker
-
-```bash
-yarn install --frozen-lockfile
-yarn setup
-yarn dev:docker
-```
-
-Compose ejecuta PostgreSQL independiente, migraciones y backend; Expo/Metro permanece en host. Comandos diarios:
-
-```bash
-yarn status:docker
-yarn logs:docker
-yarn stop:docker
-yarn rebuild:docker
-```
-
-Edita únicamente `.env` raíz. `EXPO_PUBLIC_API_URL` debe apuntar a IP LAN del host desde celular; `db:5432` solo es dirección interna Docker. Volúmenes nombrados conservan base y uploads; `stop:docker` no elimina datos. No se migran datos automáticamente desde PostgreSQL existente. Detalles y bloqueos: `docs/LOCAL_DOCKER_SETUP.md`.
+Proyecto para Desarrollo de Aplicaciones Móviles. Documentación histórica de etapas vive en `docs/`; README describe estado vigente del checkout.

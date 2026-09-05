@@ -1,246 +1,86 @@
 # AGENTS.md — Task Manager Mobile
 
-## Contexto del proyecto
+## Propósito
 
-Task Manager Mobile es una aplicación académica de gestión de tareas.
+Reglas operativas para cambios humanos o asistidos en este monorepo académico. README explica uso; este archivo protege arquitectura, datos, seguridad y verificación.
 
-Permite:
+## Fuente de verdad
 
-- registro, login, logout y sesión persistente;
-- CRUD de tareas;
-- completar y reabrir tareas;
-- fotografías asociadas;
-- ubicación GPS asociada;
-- notas de voz, preview y reproducción;
-- filtros locales no sensibles;
-- validación, loading, error, retry, empty y feedback visual.
+Resolver contradicciones en este orden:
 
-## Arquitectura actual
+1. código vigente;
+2. configuración vigente;
+3. Prisma y Zod;
+4. rutas, controladores y servicios backend;
+5. scripts `package.json`;
+6. Compose, Dockerfiles y scripts de setup;
+7. pruebas automatizadas;
+8. documentación reciente;
+9. informes históricos.
 
-```text
-mobile/ React Native + Expo + Expo Router + TypeScript
-                  │ HTTP + Bearer JWT
-                  ▼
-backend/ Express + TypeScript + Zod
-                  │ Prisma
-                  ▼
-PostgreSQL
-```
+No convertir intentos históricos, stashes o planes descartados en funcionalidad vigente.
 
-Mobile y backend son workspaces Yarn del monorepo raíz. No mezclar responsabilidades entre ambos.
+## Monorepo
 
-## Stack actual
-
-### Mobile
-
-- React Native `0.86.3`.
-- Expo `~57.0.17`.
-- Expo Router `~57.0.18`.
-- React `19.2.3`.
-- TypeScript `~6.0.3`.
-- NativeWind `4.2.6`.
-- TailwindCSS `^3.4.17`.
-- `react-native-css-interop` `0.2.6`.
-- `react-native-reanimated` `4.5.1`.
-- `react-native-worklets` `0.10.1`.
-- `react-native-safe-area-context` `~5.7.0`.
-- `@react-native-async-storage/async-storage` `^2.2.0`.
-- `react-native-screens` `~4.26.0`.
-- `expo-secure-store` `~57.0.3`.
-- `expo-image-picker` `~57.0.15`.
-- `expo-camera` `~57.0.4`.
-- `expo-location` `~57.0.15`.
-- `expo-audio` `~57.0.4`.
-- `expo-sqlite` `~57.0.2`.
-- `expo-asset` `~57.0.16`.
-- `expo-dev-client` `~57.0.18`.
-- `expo-status-bar` `~57.0.1`.
-- `expo-system-ui` `~57.0.3`.
-- Zod `^4.4.3`.
-- Jest `~29.7.0` y ts-jest `^29.4.12` para tests móviles.
-
-### Backend
-
-- Express `^5.1.0`.
-- TypeScript `^5.9.2`.
-- Prisma/@prisma-client `^6.14.0`.
-- PostgreSQL.
-- Zod `^4.0.17`.
-- bcryptjs `^3.0.3`.
-- jsonwebtoken `^9.0.3`.
-- Multer `^2.2.0`.
-- Jest `^30.0.5`.
-- Supertest `^7.1.4`.
-- Nodemon, tsx y ts-jest.
-
-## Estructura importante
+Yarn Classic `1.22.22`, workspaces `mobile` y `backend`. No usar npm ni pnpm. No editar `yarn.lock` salvo cambio deliberado de dependencias.
 
 ```text
-mobile/
-├── app/
-│   ├── _layout.tsx
-│   ├── index.tsx
-│   ├── auth/login.tsx
-│   ├── auth/register.tsx
-│   └── tasks/[id].tsx
-├── src/
-│   ├── auth/AuthProvider.tsx
-│   ├── services/
-│   └── ui/
-├── android/
-├── app.json
-├── eas.json
-├── babel.config.js
-├── expo-env.d.ts
-├── global.css
-├── jest.config.cjs
-├── metro.config.js
-├── nativewind-env.d.ts
-├── tailwind.config.js
-├── tsconfig.json
-└── package.json
-
-backend/
-├── prisma/schema.prisma
-├── prisma/migrations/
-├── src/
-│   ├── config/
-│   ├── controllers/
-│   ├── middleware/
-│   ├── routes/
-│   ├── schemas/
-│   ├── services/
-│   ├── types/
-│   └── utils/
-├── tests/
-├── uploads/
-└── package.json
-
-postman/task-manager.postman_collection.json
+mobile/             Expo Router, UI, capacidades nativas, SQLite y sync
+backend/            API Express, Zod, JWT, ownership y archivos privados
+backend/prisma/     Schema y migraciones PostgreSQL
+scripts/            Setup raíz y orquestación Docker/Metro
+postman/            Colección manual del contrato backend
+docs/               Guías vigentes e informes históricos
+docker-compose.yml  db, migrate y backend; Metro queda en host
 ```
 
-## Mobile UI rules
+No mezclar responsabilidades: problema visual mobile no se resuelve cambiando backend; contrato backend no se duplica en UI.
 
-- NativeWind/TailwindCSS es sistema principal de estilos.
-- Reutilizar `mobile/src/ui/tokens.json` y componentes existentes.
-- Componentes UI actuales incluyen `AppLogo`, `AppImage`, `AppHeader`, `AppBadge`, `AppFeedback`, `AppConfirmModal`, `AppText`, `AppButton`, `AppInput`, `Screen`, `AuthScreen`, `Card`, `TaskCard` y `StateMessage`.
-- Usar `className` y tokens.
-- Evitar `StyleSheet.create` y `style={{}}`; solo permitirlos por limitación técnica documentada.
-- Respetar Safe Area mediante `SafeAreaProvider` root y `SafeAreaView` de `react-native-safe-area-context` en `Screen`.
-- Mantener Status Bar coherente con tokens.
-- Mantener textos visibles en español.
-- Mantener loading, success, error, empty, retry y disabled.
-- Mantener labels, roles, feedback y touch targets accesibles.
-- No duplicar cards, botones, badges, modales ni feedback.
-- No introducir otro sistema de estilos o librería UI.
-
-## Reglas de desarrollo
-
-- TypeScript estricto.
-- No usar `any` para ocultar errores.
-- No usar `@ts-ignore`, `@ts-nocheck` ni casts arbitrarios para silenciar errores.
-- No dejar logs de diagnóstico temporales.
-- No crear funcionalidades fuera de la solicitud.
-- Reutilizar servicios y componentes existentes.
-- Cambiar el mínimo número de archivos.
-- No eliminar funcionalidades existentes.
-- Validar errores y estados de operaciones.
-- No almacenar secretos en código ni documentación.
-- Ejecutar formatter/lint/tests al final, no durante cada edición salvo que se esté diagnosticando un error.
-
-## Autenticación y almacenamiento
-
-- JWT se guarda únicamente en `expo-secure-store`.
-- AsyncStorage se usa solamente para preferencias no sensibles, actualmente filtro de tareas.
-- SQLite local persiste tareas y fotografías por `ownerId`; no contiene credenciales.
-- Nunca guardar password, JWT, refresh token, secreto o credencial en AsyncStorage.
-- `AuthProvider` recupera token, valida `/api/auth/me` y permite acceso local con identidad validada cuando red falla temporalmente.
-- No cambiar contratos de auth ni endpoints sin solicitud explícita.
-
-## Backend y API
-
-No modificar backend durante una tarea exclusivamente mobile/UI.
-
-Respetar:
-
-- Express routes/controllers/services.
-- Prisma y PostgreSQL.
-- Zod en límites de confianza.
-- `userId` derivado del JWT.
-- Ownership usuario → tarea → attachment.
-- Respuestas y códigos HTTP actuales.
-- Archivos privados servidos solo por endpoints autenticados.
-
-Endpoints actuales:
+## Arquitectura vigente
 
 ```text
-GET  /health
-POST /api/auth/register
-POST /api/auth/login
-GET  /api/auth/me
-POST /api/auth/logout
-POST /api/tasks
-GET  /api/tasks
-GET  /api/tasks/:id
-PATCH /api/tasks/:id
-DELETE /api/tasks/:id
-POST/GET/DELETE /api/tasks/:id/images
-GET /api/tasks/:id/images/:imageId/file
-POST/GET/DELETE /api/tasks/:id/audios
-GET /api/tasks/:id/audios/:audioId/file
+mobile: React Native 0.86.3 + Expo SDK 57 + Expo Router + TypeScript
+         SQLite + SecureStore + filesystem local
+                           │ HTTP / Bearer JWT
+backend: Express 5 + Zod + Prisma
+                           │
+PostgreSQL + volumen privado de uploads
 ```
 
-No agregar endpoints desde mobile.
+- SQLite es fuente local inmediata para tareas, metadata multimedia y cola durable.
+- PostgreSQL es persistencia remota; no reemplazar SQLite.
+- `localId` es identidad UI y key estable. `remoteId` puede ser nulo hasta sincronización.
+- Tareas y fotografías usan operaciones durables e idempotentes.
+- Conflictos de versión quedan visibles; no sobrescribir ni resolver silenciosamente.
+- Sincronización corre manualmente o al volver a foreground con sesión remota; no agregar background sync.
+- Audio móvil estable es local. No conectar upload/list/download remoto ni implementar B.2.2 accidentalmente.
+- Backend conserva endpoints de audio y Postman puede probarlos independientemente.
 
-## Multimedia
+## Comandos
 
-- Cámara se solicita bajo demanda para fotografías.
-- Imágenes se almacenan físicamente en `backend/uploads/images/` durante desarrollo y su metadata en Prisma.
-- Mobile usa URLs protegidas de imagen con header Bearer.
-- Audio se graba con expo-audio, se previsualiza, se sube y se reproduce con URL protegida.
-- GPS es foreground, opcional y valida accuracy/timestamp.
-- Liberar recorder, player, previews y recursos nativos al desmontar o cancelar.
-- No implementar background recording, tracking GPS, mapas, streaming, transcripción ni waveform.
-
-## Variables de entorno
-
-El entorno local usa únicamente `.env` raíz:
-
-- `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`: PostgreSQL Docker.
-- `JWT_SECRET`: backend Docker.
-- `BACKEND_PORT`: puerto publicado del backend.
-- `EXPO_PUBLIC_API_URL`: URL pública autorizada para Metro/celular.
-
-Compose distribuye solo variables necesarias al backend; Metro recibe únicamente `EXPO_PUBLIC_API_URL`. `.env` está ignorado por Git, Docker y EAS. `*.example` contiene únicamente placeholders seguros.
-
-## Entorno local Docker
+Desde raíz:
 
 ```bash
-yarn setup
+yarn install --frozen-lockfile
+yarn setup --non-interactive --api-url http://IP_LAN_DEL_HOST:3000
 yarn dev:docker
 yarn status:docker
 yarn logs:docker
 yarn stop:docker
-```
+yarn rebuild:docker
 
-Compose mantiene PostgreSQL y uploads en volúmenes nombrados independientes; `down` no los elimina. Backend espera migraciones y `/ready` antes de Metro. El celular usa `EXPO_PUBLIC_API_URL` con IP LAN del host. Ver `docs/LOCAL_DOCKER_SETUP.md`.
-
-## Testing obligatorio
-
-Desde la raíz:
-
-```bash
+yarn typecheck
+yarn typecheck:tests
+yarn lint
 yarn test
-yarn run test:backend
-yarn run test:mobile
-yarn run typecheck
-yarn run lint
+yarn test:backend
+yarn test:mobile
 ```
 
 Prisma:
 
 ```bash
-yarn run prisma:generate
+yarn workspace task-manager-backend prisma:generate
 yarn workspace task-manager-backend exec prisma validate
 yarn workspace task-manager-backend exec prisma migrate status
 ```
@@ -251,48 +91,142 @@ Android:
 yarn workspace task-manager-mobile android
 ```
 
-La suite de backend usa Jest + Supertest (7 suites, 61 tests) y cubre auth, ownership, CRUD, validación, attachments, GPS, audio y preferencias. Mobile tiene `mobile/jest.config.cjs` y tests de esquemas en `mobile/src/services/__tests__/`. Hardware real requiere Development Build Android.
+No inventar scripts. Docker no se instala ni inicia con `yarn setup`; setup valida herramientas y prepara único `.env` raíz.
 
-## Deployment
+## Reglas de edición
 
-No hay proveedor de producción configurado en repositorio.
+- TypeScript estricto. No `any` para ocultar errores, `@ts-ignore`, `@ts-nocheck` ni casts arbitrarios.
+- Reutilizar helpers, servicios y componentes existentes antes de crear otra convención.
+- Cambiar mínimo número de archivos; no añadir abstracciones para necesidades futuras.
+- No cambiar endpoints, respuestas, códigos HTTP, Prisma o migraciones sin solicitud explícita.
+- No eliminar funcionalidades vigentes.
+- No dejar logs diagnósticos temporales ni silenciar warnings globalmente.
+- No usar índices como keys; usar `localId`, ID de attachment, `externalId` u otra identidad estable.
+- Antes de eliminar metadata o archivo, confirmar alcance y estado seguro. Filesystem/DB no son transacción única.
+- No tocar, aplicar, inspeccionar, renombrar ni eliminar stashes del usuario.
+- No ejecutar commit ni push salvo solicitud explícita.
 
-Backend reproducible en infraestructura externa:
+## UI y accesibilidad
 
-```bash
-yarn install --frozen-lockfile
-yarn run prisma:generate
-yarn workspace task-manager-backend exec prisma migrate deploy
-yarn workspace task-manager-backend start
+- `mobile/src/ui/tokens.json` es fuente visual autoritativa; `tokens.ts` exporta y Tailwind consume.
+- Preservar Mulberry Night. No añadir segundo tema o sistema de estilos.
+- NativeWind/TailwindCSS es sistema principal; usar `className` y tokens.
+- Reutilizar componentes compartidos de `mobile/src/ui/components.tsx`; no duplicar cards, botones, badges, feedback o modales.
+- Evitar `StyleSheet.create` y `style={{}}`; aceptar solo limitación técnica concreta y documentada.
+- Mantener Safe Area, Status Bar, textos visibles en español, loading, success, error, empty, retry y disabled.
+- Mantener labels, roles, live regions, estados no dependientes solo de color y touch targets accesibles.
+- `ExampleBox` es colección acotada con scroll interno y máximo actual de 200 registros. No convertirla en lista masiva sin rediseño medido.
+- Spies de consola deben ser locales, validar mensaje esperado y restaurarse con `try/finally`; nunca apagar `console` globalmente.
+
+## Auth y secretos
+
+- JWT e identidad validada: solo `expo-secure-store`.
+- AsyncStorage: preferencias no sensibles, actualmente filtro.
+- SQLite: tareas y metadata por `ownerId`; nunca credenciales.
+- No guardar password, JWT, refresh token o secreto en AsyncStorage, SQLite, URL, query, logs, fixtures o documentación.
+- Bearer va solo en header `Authorization`.
+- Solo `EXPO_PUBLIC_API_URL` puede llegar al bundle público.
+- Entorno local usa únicamente `.env` raíz. No crear `mobile/.env` ni `backend/.env`.
+- `userId` y ownership siempre derivan de JWT, nunca de body/query del cliente.
+
+## Multimedia
+
+- Cámara, ubicación y micrófono se solicitan bajo demanda; no background location/recording.
+- Fotografías se copian a filesystem local antes de persistir metadata; sincronización conserva archivo hasta respuesta válida.
+- Imágenes remotas se muestran/descargan con Bearer desde endpoints protegidos.
+- No exponer `/uploads` con `express.static`, no usar URL interna como API y no poner token en query.
+- Audio móvil: archivo + metadata local, preview, reproducción y eliminación. Sin cola ni sincronización remota.
+- Liberar recorder, player, previews y recursos nativos al desmontar o cancelar.
+- No implementar mapas, tracking, streaming, transcripción o waveform sin solicitud.
+
+## Sync e identidad
+
+- Mantener `localId` aunque exista `remoteId`; navegación/listas no cambian a ID remoto.
+- `operationId` debe permanecer estable durante replay y actuar como `Idempotency-Key`.
+- Mismo usuario + misma clave + mismo payload devuelve mismo resultado lógico.
+- Misma clave con payload distinto produce conflicto; no regenerar clave durante replay incierto.
+- Update/delete conservan versión remota mediante `If-Match`; no omitirla para “resolver” 409.
+- Imagen usa `remoteId` de tarea y operación estable; nunca enviar `localId` como UUID backend.
+- 401 pausa flujo remoto; conflicto/review requiere acción explícita.
+- No borrar archivo local antes de confirmación segura de metadata/sync.
+
+## Backend y API
+
+Rutas reales:
+
+```text
+GET  /health
+GET  /ready
+POST /api/auth/register
+POST /api/auth/login
+GET  /api/auth/me
+POST /api/auth/logout
+POST /api/tasks
+GET  /api/tasks
+GET  /api/tasks/:id
+PATCH /api/tasks/:id
+DELETE /api/tasks/:id
+POST /api/tasks/:id/images
+GET  /api/tasks/:id/images
+GET  /api/tasks/:id/images/:imageId/file
+DELETE /api/tasks/:id/images/:imageId
+POST /api/tasks/:id/audios
+GET  /api/tasks/:id/audios
+GET  /api/tasks/:id/audios/:audioId/file
+DELETE /api/tasks/:id/audios/:audioId
 ```
 
-Mobile local:
+- Zod valida body, params y query.
+- Rutas privadas requieren Bearer.
+- Recursos ajenos devuelven 404 para ocultar existencia.
+- `Idempotency-Key` opcional existe en create/update/delete task y upload image.
+- `If-Match` opcional existe en update/delete task; número decimal directo o entre comillas.
+- Uploads usan campo `file`; Postman/cliente deja generar boundary multipart.
+- Imágenes: JPEG, PNG o WebP, máximo 10 MiB.
+- Audio backend: MIME declarados en `attachment.schemas.ts`, máximo 10 MiB, duración `(0, 3600]` segundos.
+
+## Docker y datos
+
+- Compose contiene `db`, `migrate`, `backend`; Metro corre en host.
+- `db:5432` solo funciona dentro de Compose.
+- Teléfono usa `EXPO_PUBLIC_API_URL` con IP LAN y `BACKEND_PORT`; nunca `localhost`.
+- Volúmenes `task-manager-dev-postgres` y `task-manager-dev-uploads` sobreviven `down`.
+- No ejecutar `docker compose down -v`, prune, reset o borrado de volúmenes salvo orden destructiva explícita.
+- No levantar, reconstruir ni destruir Compose para cambio puramente documental.
+
+## Verificación mínima por cambio
+
+| Cambio | Verificación mínima |
+|---|---|
+| UI | typecheck mobile, tests focalizados relevantes, lint |
+| Servicio mobile | tests focalizados, suite mobile, typecheck |
+| Backend | tests focalizados, suite backend, `typecheck:tests` |
+| Prisma | `prisma validate`; `migrate status` o procedimiento documentado |
+| Docker | `docker compose ... config --quiet`; health/readiness si entorno ya corre |
+| Documentación/Postman | JSON parse, variables/rutas/scripts, links y comandos |
+
+Toda entrega relevante termina con:
 
 ```bash
-yarn workspace task-manager-mobile android
+git diff --check
+yarn typecheck
+yarn typecheck:tests
+yarn lint
+yarn test
 ```
 
-`mobile/eas.json` contiene únicamente perfil `development` con `developmentClient: true` y `distribution: internal`.
+Además:
 
-EAS Development Build:
+- Bug fix: reproducir, corregir causa y confirmar que reproducción desaparece.
+- UI/nativo: Jest no prueba bridge; validar Development Build físico cuando cambio toca cámara, GPS, audio, gestos o accesibilidad nativa.
+- Docker/EAS/Gradle no son obligatorios para documentación pura.
+- Ejecutar formatter/lint/suites completas una vez al final, no después de cada edición.
 
-```bash
-npx eas-cli@23.2.0 login
-npx eas-cli@23.2.0 build --profile development --platform android
-```
+## Documentación
 
-No documentar perfil production porque no está configurado.
-
-## Prohibiciones
-
-No implementar:
-
-- cambios de backend para resolver problemas visuales;
-- JWT en AsyncStorage;
-- secretos en código o documentación;
-- `any`, `@ts-ignore` o `@ts-nocheck` para ocultar errores;
-- APIs nuevas no solicitadas;
-- cambios de esquema o migraciones sin autorización;
-- No implementar sincronización automática en background ni resolver conflictos silenciosamente; sincronización manual P3 usa operaciones idempotentes y versión remota.
-- background location/recording;
-- otra etapa automáticamente al terminar una tarea.
+- README y AGENTS describen presente; informes P0–P5 pueden conservar resultados históricos fechados.
+- Corregir informe histórico solo cuando afirmación factual vigente induzca a error.
+- No inventar badges, capturas, métricas, compatibilidad, comandos, deployment o estado físico.
+- Colección Postman debe usar schema v2.1, `{{baseUrl}}`, variables declaradas, Bearer en headers y cero secretos/IP/rutas locales reales.
+- Audio backend en Postman no implica audio remoto móvil.
+- Cambios documentales no deben tocar `mobile/app`, `mobile/src`, `backend/src`, `backend/prisma`, scripts, manifests, Compose o lockfile.
