@@ -2,7 +2,9 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    "types": ["node", "jest"]
+    "types": ["node", "jest"],
+    "rootDir": "..",
+    "isolatedModules": true
   },
   "include": ["src/**/*.ts", "tests/**/*.ts"]
 }
