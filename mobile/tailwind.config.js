@@ -16,8 +16,8 @@ module.exports = {
       borderRadius: pxScale(tokenData.radius),
       fontSize: fontScale,
       boxShadow: {
-        small: '0 1px 3px rgba(20, 33, 61, 0.06)',
-        medium: '0 3px 8px rgba(20, 33, 61, 0.1)'
+        small: '0 1px 4px rgba(41, 33, 39, 0.08)',
+        medium: '0 3px 8px rgba(41, 33, 39, 0.12)'
       }
     }
   },

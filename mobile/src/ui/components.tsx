@@ -100,7 +100,7 @@ export function AuthenticatedImage({ identity, localUri, remoteUri, token, class
 
 type BadgeTone = 'neutral' | 'success' | 'warning' | 'error' | 'accent';
 export function AppBadge({ label, tone = 'neutral' }: { label: string; tone?: BadgeTone }) {
-  const toneClasses = { neutral: 'bg-secondary border-border text-textSecondary', success: 'bg-success/15 border-success text-success', warning: 'bg-warning/15 border-warning text-warning', error: 'bg-error/15 border-error text-error', accent: 'bg-primarySoft border-primary text-primary' } as const;
+  const toneClasses = { neutral: 'bg-surfaceMuted border-border text-textMuted', success: 'bg-successSoft border-success text-success', warning: 'bg-warningSoft border-warning text-warning', error: 'bg-errorSoft border-error text-error', accent: 'bg-primarySoft border-primary text-primaryDeep' } as const;
   const [background, border, text] = toneClasses[tone].split(' ');
   return <View className={`self-start flex-row items-center rounded-pill border px-md py-xs ${background} ${border}`}><AppText variant="caption" className={text}>{label}</AppText></View>;
 }
@@ -115,7 +115,7 @@ export function AppHeader({ title, onBack, right }: { title: string; onBack?: ()
 type FeedbackTone = 'success' | 'error' | 'info' | 'warning';
 export function AppFeedback({ message, tone = 'info' }: { message?: string; tone?: FeedbackTone }) {
   if (!message) return null;
-  const toneClasses = { success: 'bg-success/15 border-success text-success', error: 'bg-error/15 border-error text-error', info: 'bg-primarySoft border-primary text-primary', warning: 'bg-warning/15 border-warning text-warning' } as const;
+  const toneClasses = { success: 'bg-successSoft border-success text-success', error: 'bg-errorSoft border-error text-error', info: 'bg-infoSoft border-info text-info', warning: 'bg-warningSoft border-warning text-warning' } as const;
   const [background, border, text] = toneClasses[tone].split(' ');
   return <View accessibilityRole={tone === 'error' ? 'alert' : 'none'} accessibilityLiveRegion="polite" className={`rounded-medium border px-lg py-md mb-md ${background} ${border}`}>
     <AppText variant="bodySecondary" className={`${text} flex-shrink`}>{message}</AppText>
@@ -125,35 +125,40 @@ export function AppFeedback({ message, tone = 'info' }: { message?: string; tone
 type AppButtonProps = Omit<PressableProps, 'children'> & {
   title: string;
   loading?: boolean;
-  variant?: 'primary' | 'secondary' | 'danger' | 'ghost';
+  variant?: 'primary' | 'secondary' | 'danger' | 'destructive' | 'ghost';
+  size?: 'md' | 'lg';
+  fullWidth?: boolean;
   className?: string;
 };
 
 const buttonVariants = {
   primary: 'bg-primary',
-  secondary: 'bg-secondary',
+  secondary: 'bg-surfaceMuted border border-border',
   danger: 'bg-error',
+  destructive: 'bg-error',
   ghost: 'bg-transparent border border-border'
 } as const;
 
 const buttonTextVariants = {
-  primary: 'text-surface',
-  secondary: 'text-primary',
-  danger: 'text-surface',
+  primary: 'text-textOnPrimary',
+  secondary: 'text-primaryDeep',
+  danger: 'text-textOnPrimary',
+  destructive: 'text-textOnPrimary',
   ghost: 'text-text'
 } as const;
 
-export function AppButton({ title, loading = false, variant = 'primary', disabled, className = '', ...props }: AppButtonProps) {
+export function AppButton({ title, loading = false, variant = 'primary', size = 'md', fullWidth = false, disabled, className = '', ...props }: AppButtonProps) {
   const isDisabled = disabled || loading;
+  const padding = size === 'lg' ? 'px-lg py-md' : 'px-lg py-sm';
   return <Pressable
     {...props}
     accessibilityRole="button"
     accessibilityState={{ disabled: isDisabled, busy: loading }}
     disabled={isDisabled}
     hitSlop={4}
-    className={`min-h-[44px] rounded-medium px-lg py-md items-center justify-center my-xs active:opacity-80 ${buttonVariants[variant]} ${isDisabled ? 'opacity-50' : ''} ${className}`}
+    className={`min-h-[44px] rounded-small ${padding} items-center justify-center my-xs active:opacity-80 ${fullWidth ? 'w-full' : ''} ${buttonVariants[variant]} ${isDisabled ? 'bg-disabledSurface border-disabledSurface opacity-100' : ''} ${className}`}
   >
-    {loading ? <ActivityIndicator color={variant === 'primary' || variant === 'danger' ? colors.surface : colors.primary} /> : <AppText variant="button" className={buttonTextVariants[variant]}>{title}</AppText>}
+    {loading ? <ActivityIndicator color={variant === 'primary' || variant === 'danger' || variant === 'destructive' ? colors.textOnPrimary : colors.primary} /> : <AppText variant="button" className={isDisabled ? 'text-disabledText' : buttonTextVariants[variant]}>{title}</AppText>}
   </Pressable>;
 }
 
@@ -166,7 +171,7 @@ type AppInputProps = TextInputProps & {
 export function AppInput({ label, error, className = '', ...props }: AppInputProps) {
   return <View className="gap-xs mb-md">
     <AppText variant="label">{label}</AppText>
-    <TextInput {...props} accessibilityLabel={props.accessibilityLabel ?? label} placeholderTextColor={colors.textSecondary} className={`text-body text-text bg-surface border border-border rounded-medium px-md py-md min-h-[48px] focus:border-primary ${props.editable === false ? 'opacity-60 bg-background' : ''} ${error ? 'border-error focus:border-error' : ''} ${className}`} />
+    <TextInput {...props} accessibilityLabel={props.accessibilityLabel ?? label} placeholderTextColor={colors.textMuted} className={`text-body text-text bg-surface border border-borderStrong rounded-small px-md py-md min-h-[48px] focus:border-focus ${props.multiline ? 'min-h-[96px] pt-md' : ''} ${props.editable === false ? 'bg-disabledSurface text-disabledText' : ''} ${error ? 'border-error focus:border-error' : ''} ${className}`} />
     {error && <AppText variant="caption" className="text-error">{error}</AppText>}
   </View>;
 }
@@ -187,12 +192,12 @@ type AppConfirmModalProps = {
 };
 
 export function AppConfirmModal({ visible, title, description, confirmLabel = 'Confirmar', loading = false, onCancel, onConfirm }: AppConfirmModalProps) {
-  return <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+  return <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel} accessibilityViewIsModal>
     <View className="flex-1 items-center justify-center bg-overlay px-xl">
-      <View className="w-full rounded-xl border border-border bg-surfaceElevated p-xl shadow-medium">
-        <AppText variant="heading">{title}</AppText>
+      <View className="w-full rounded-large border border-border bg-surface p-xl shadow-medium">
+        <AppText variant="heading" accessibilityRole="header">{title}</AppText>
         <AppText variant="bodySecondary" muted className="mt-sm">{description}</AppText>
-        <View className="flex-row gap-sm justify-end mt-xl"><AppButton title="Cancelar" variant="ghost" onPress={onCancel} disabled={loading} className="flex-1" /><AppButton title={confirmLabel} variant="danger" loading={loading} onPress={onConfirm} className="flex-1" /></View>
+        <View className="flex-row gap-sm justify-end mt-xl"><AppButton title="Cancelar" variant="ghost" onPress={onCancel} disabled={loading} className="flex-1" /><AppButton title={confirmLabel} variant="destructive" loading={loading} onPress={onConfirm} className="flex-1" /></View>
       </View>
     </View>
   </Modal>;
