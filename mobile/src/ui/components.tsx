@@ -336,6 +336,25 @@ export function DangerZone({ children }: { children: ReactNode }) {
     <View className="mt-md">{children}</View>
   </View>;
 }
+type ExampleBoxProps<T> = {
+  title: string;
+  items: readonly T[];
+  keyForItem: (item: T) => string;
+  renderItem: (item: T) => ReactNode;
+  emptyContent?: ReactNode;
+  accessibilityLabel?: string;
+  maxHeight?: number;
+};
+
+export function ExampleBox<T>({ title, items, keyForItem, renderItem, emptyContent, accessibilityLabel, maxHeight = 360 }: ExampleBoxProps<T>) {
+  return <View accessibilityLabel={accessibilityLabel} className="rounded-large border border-primary bg-surfaceElevated p-md">
+    <AppText variant="label" accessibilityRole="header" className="mb-sm">{title}</AppText>
+    <ScrollView accessibilityLabel={`${accessibilityLabel ?? title} desplazable`} nestedScrollEnabled style={{ maxHeight }} contentContainerClassName="gap-sm pb-md" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator>
+      {items.length ? items.map((item) => <View key={keyForItem(item)}>{renderItem(item)}</View>) : emptyContent}
+    </ScrollView>
+  </View>;
+}
+
 type SelectableRowProps = {
   title: string;
   description?: string | null;
@@ -365,12 +384,11 @@ export function SelectableRow({ title, description, statusLabel, selected, disab
   </Pressable>;
 }
 
-export function ResultSummary({ received, valid, imported, selectable, selected }: { received: number; valid: number; imported: number; selectable: number; selected: number }) {
+export function ResultSummary({ received, valid, imported, selectable }: { received: number; valid: number; imported: number; selectable: number }) {
   return <View accessibilityRole="summary" className="flex-row flex-wrap rounded-large border border-border bg-surfaceMuted p-md mb-md">
     <View className="w-1/2 p-xs"><AppText variant="heading">{received}</AppText><AppText variant="caption" muted>Recibidas</AppText></View>
     <View className="w-1/2 p-xs"><AppText variant="heading">{valid}</AppText><AppText variant="caption" muted>Válidas</AppText></View>
     <View className="w-1/2 p-xs"><AppText variant="heading">{imported}</AppText><AppText variant="caption" muted>Ya importadas</AppText></View>
     <View className="w-1/2 p-xs"><AppText variant="heading">{selectable}</AppText><AppText variant="caption" muted>Disponibles</AppText></View>
-    <AppText variant="bodySecondary" className="w-full mt-sm text-primaryHighlight">{selected} seleccionadas</AppText>
   </View>;
 }

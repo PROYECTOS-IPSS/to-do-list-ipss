@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FlatList, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../src/auth/AuthProvider';
 import { fetchJsonPlaceholderTodos, type ImportedTodoPreview } from '../src/services/jsonplaceholder-adapter';
 import { getTaskStore } from '../src/services/local-tasks';
-import { AppButton, AppFeedback, AppHeader, AppText, Card, ResultSummary, Screen, SelectableRow, StateMessage } from '../src/ui/components';
+import { AppButton, AppFeedback, AppHeader, AppText, Card, ExampleBox, ResultSummary, Screen, SelectableRow, StateMessage } from '../src/ui/components';
+
+const EXAMPLE_BOX_HEIGHT = 360;
 
 export default function ImportScreen() {
   const { user, accessMode } = useAuth();
@@ -56,20 +58,30 @@ export default function ImportScreen() {
 
   const importedCount = records.filter((item) => importedIds.has(item.externalId)).length;
   const selectableCount = records.length - importedCount;
+  const emptyContent = loading ? <StateMessage title="Consultando tareas de ejemplo..." /> : error ? null : !hasQueried ? <Card className="border-primary"><AppText variant="title">Aún no hay resultados</AppText><AppText variant="bodySecondary" muted className="mt-xs">Consulta las tareas de ejemplo para revisar cuáles quieres agregar.</AppText></Card> : <StateMessage title="No hay tareas disponibles." />;
 
   return <Screen>
-    <AppHeader title="Importar tareas" onBack={() => router.back()} />
-    <View className="flex-1">
-      <AppText variant="display">Trae tareas a tu espacio</AppText>
-      <AppText variant="bodySecondary" muted className="mt-xs mb-lg">Consulta JSONPlaceholder y elige qué tareas guardar localmente. Tu sesión y datos personales no se envían a la fuente.</AppText>
-      <Card className="p-md mb-md"><AppText variant="label">Fuente externa</AppText><AppText variant="bodySecondary" className="mt-xs">JSONPlaceholder · tareas de demostración</AppText><AppButton title={loading ? 'Consultando...' : 'Consultar fuente'} loading={loading} onPress={() => void load()} disabled={busy} className="mt-md" /></Card>
-      {hasQueried && !loading && !error && <ResultSummary received={records.length + rejectedCount} valid={records.length} imported={importedCount} selectable={selectableCount} selected={selected.size} />}
+    <ScrollView className="flex-1" contentContainerClassName="pb-lg" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator>
+      <AppHeader title="Tareas de ejemplo" onBack={() => router.back()} />
+      <AppText variant="bodySecondary" muted className="mb-md">Explora tareas de demostración y agrega las que te resulten útiles a tu espacio.</AppText>
+      <Card className="p-md mb-md">
+        <AppText variant="label">Fuente de demostración</AppText>
+        <AppText variant="bodySecondary" className="mt-xs">Estas tareas son datos ficticios utilizados para demostrar la importación desde un servicio externo.</AppText>
+        <AppText variant="caption" muted className="mt-sm">Contenido de demostración proporcionado por JSONPlaceholder.</AppText>
+        <AppButton title={loading ? 'Consultando...' : 'Consultar tareas de ejemplo'} loading={loading} onPress={() => void load()} disabled={busy || loading} className="mt-md" />
+      </Card>
+      {hasQueried && !loading && !error && <ResultSummary received={records.length + rejectedCount} valid={records.length} imported={importedCount} selectable={selectableCount} />}
       {feedback && <AppFeedback message={feedback} tone="info" />}
       {error && <StateMessage title={error} tone="error" actionTitle="Reintentar" onAction={() => void load()} />}
-      {!hasQueried && !loading && <Card className="border-primary"><AppText variant="title">Lista sin consultar</AppText><AppText variant="bodySecondary" muted className="mt-xs">Consulta la fuente para revisar tareas disponibles.</AppText></Card>}
-      {hasQueried && !loading && !error && records.length === 0 && <StateMessage title="No hay tareas disponibles." />}
-      <FlatList data={records} keyExtractor={(item) => item.externalId} contentContainerClassName="gap-sm pb-lg" renderItem={({ item }) => { const alreadyImported = importedIds.has(item.externalId); const isSelected = selected.has(item.externalId); return <SelectableRow title={item.title} description={item.description} statusLabel={alreadyImported ? 'Ya importada · no seleccionable' : `${item.completed ? 'Completada' : 'Pendiente'} · ${isSelected ? 'Seleccionada' : 'Disponible'}`} selected={isSelected} disabled={busy || alreadyImported} onPress={() => toggle(item.externalId)} />; }} />
-      <View className="border-t border-border bg-background pt-md"><AppText variant="bodySecondary" className="mb-xs">{selected.size} seleccionadas</AppText><AppButton title="Importar seleccionadas" loading={busy} disabled={!selected.size || accessMode === 'none'} onPress={() => void confirm()} /></View>
-    </View>
+      <ExampleBox title="Resultados" items={records} keyForItem={(item) => item.externalId} maxHeight={EXAMPLE_BOX_HEIGHT} accessibilityLabel="Resultados de tareas de ejemplo" emptyContent={emptyContent} renderItem={(record) => {
+        const alreadyImported = importedIds.has(record.externalId);
+        const isSelected = selected.has(record.externalId);
+        return <SelectableRow title={record.title} description={record.description} statusLabel={alreadyImported ? 'Ya importada · no seleccionable' : `${record.completed ? 'Completada' : 'Pendiente'} · ${isSelected ? 'Seleccionada' : 'Disponible'}`} selected={isSelected} disabled={busy || alreadyImported} onPress={() => toggle(record.externalId)} />;
+      }} />
+      <View className="border-t border-primary bg-surface p-md mt-md">
+        <AppText variant="bodySecondary" className="mb-xs" accessibilityLiveRegion="polite">{selected.size === 1 ? '1 tarea seleccionada' : `${selected.size} tareas seleccionadas`}</AppText>
+        <AppButton title="Importar seleccionadas" loading={busy} disabled={!selected.size || busy || accessMode === 'none'} onPress={() => void confirm()} />
+      </View>
+    </ScrollView>
   </Screen>;
 }
