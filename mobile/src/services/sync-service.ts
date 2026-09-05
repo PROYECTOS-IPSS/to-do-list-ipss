@@ -1,12 +1,12 @@
 import { getTaskStore } from './local-tasks';
 import { TaskHttpError, tasksApi } from './tasks';
+import { AttachmentHttpError, attachmentsApi } from './attachments';
 import type { AccessMode } from '../auth/AuthProvider';
 import type { SyncOperation } from './task-repository';
 
-export type SyncSummary = { attempted: number; confirmed: number; failed: number; conflicts: number; review: number };
+export type SyncSummary = { attempted: number; confirmed: number; failed: number; conflicts: number; review: number; messages?: string[] };
 export type ConflictResolution = 'server' | 'local';
 export type SyncRunOptions = { force?: boolean };
-
 const MAX_ATTEMPTS = 3;
 const MAX_RETRY_DELAY_MS = 30_000;
 const emptySummary = (): SyncSummary => ({ attempted: 0, confirmed: 0, failed: 0, conflicts: 0, review: 0 });
@@ -17,7 +17,7 @@ export const retryDelayMs = (attempt: number, retryAfterMs?: number): number => 
 };
 
 const wait = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
-const operationStatus = (error: unknown) => error instanceof TaskHttpError ? error.statusCode : 0;
+const operationStatus = (error: unknown) => error instanceof TaskHttpError || error instanceof AttachmentHttpError ? error.statusCode : 0;
 const isRetryable = (status: number) => status === 0 || status === 429 || status >= 500;
 const isNotFound = (error: unknown) => error instanceof TaskHttpError && error.statusCode === 404;
 const run = async (ownerId: string, token: string, mode: AccessMode, force = false): Promise<SyncSummary> => {
@@ -25,21 +25,22 @@ const run = async (ownerId: string, token: string, mode: AccessMode, force = fal
   const store = await getTaskStore();
   const operations = await store.listOperations(ownerId);
   const summary = emptySummary();
+  const messages: string[] = [];
   for (const operation of operations) {
-    if (operation.state === 'conflict') { summary.conflicts += 1; continue; }
-    if (operation.state === 'review') { summary.review += 1; continue; }
     if (operation.state === 'failed' && !force) { summary.failed += 1; continue; }
     if (operation.attempts >= MAX_ATTEMPTS && !force) { summary.failed += 1; continue; }
     const task = await store.find(ownerId, operation.taskLocalId);
     if (!task) {
       await store.markOperation(ownerId, operation.operationId, 'review', 'La tarea local ya no está disponible; requiere revisión.');
       summary.review += 1;
+      messages.push('Tarea sin copia local; requiere revisión.');
       continue;
     }
-    if ((operation.kind === 'update' || operation.kind === 'delete') && !task.remoteId) continue;
+    if ((operation.kind === 'update' || operation.kind === 'delete' || operation.kind === 'image') && !task.remoteId) continue;
     if (task.remoteOutcome === 'unknown') {
       await store.markOperation(ownerId, operation.operationId, 'review', 'Resultado remoto incierto; requiere revisión manual.');
       summary.review += 1;
+      messages.push(`${task.title}: resultado remoto incierto; requiere revisión manual.`);
       continue;
     }
     let waitedForRetryAfter = false;
@@ -63,9 +64,17 @@ const run = async (ownerId: string, token: string, mode: AccessMode, force = fal
       } else if (operation.kind === 'delete' && task.remoteId) {
         await tasksApi.remove(token, task.remoteId, operation.operationId, task.remoteVersion);
         await store.deleteRemoteConfirmed(ownerId, task.localId);
-      } else if (operation.kind === 'image') {
-        await store.markOperation(ownerId, operation.operationId, 'review', 'La sincronización de imágenes requiere revisión.');
-        summary.review += 1;
+      } else if (operation.kind === 'image' && task.remoteId) {
+        const payload = JSON.parse(operation.payload) as unknown;
+        if (!payload || typeof payload !== 'object' || !('fileId' in payload) || !('uri' in payload) || typeof payload.fileId !== 'string' || typeof payload.uri !== 'string') {
+          throw new Error('La operación de imagen guardada no es válida.');
+        }
+        const filename = 'filename' in payload && typeof payload.filename === 'string' ? payload.filename : 'task-image.jpg';
+        const mimeType = 'mimeType' in payload && typeof payload.mimeType === 'string' ? payload.mimeType : 'image/jpeg';
+        const image = await attachmentsApi.uploadImage(token, task.remoteId, payload.uri, operation.operationId, filename, mimeType);
+        await store.confirmImageUpload(ownerId, operation.operationId, payload.fileId, image);
+        await store.markOperation(ownerId, operation.operationId, 'confirmed');
+        summary.confirmed += 1;
         continue;
       }
       await store.markOperation(ownerId, operation.operationId, 'confirmed');
@@ -76,12 +85,17 @@ const run = async (ownerId: string, token: string, mode: AccessMode, force = fal
       const retryAfterMs = status === 429 && error instanceof TaskHttpError ? error.retryAfterMs : undefined;
       const retryAfterAt = state === 'pending' && retryAfterMs !== undefined ? new Date(Date.now() + retryDelayMs(operation.attempts + 1, retryAfterMs)).toISOString() : null;
       await store.markOperation(ownerId, operation.operationId, state, error instanceof Error ? error.message : 'Sync failed.', retryAfterAt);
-      if (state === 'conflict') summary.conflicts += 1;
-      else summary.failed += 1;
+      if (state === 'conflict') {
+        summary.conflicts += 1;
+        messages.push(`${task.title}: conflicto; revisa versión local o remota.`);
+      } else {
+        summary.failed += 1;
+        messages.push(`${task.title}: ${status === 401 ? 'sesión no autorizada; inicia sesión para sincronizar.' : error instanceof Error ? error.message : 'fallo de sincronización.'}`);
+      }
       if (status === 401) break;
     }
   }
-  return summary;
+  return messages.length ? { ...summary, messages } : summary;
 };
 
 const resolve = async (ownerId: string, token: string, operationId: string, resolution: ConflictResolution): Promise<void> => {

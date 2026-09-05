@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import request from 'supertest';
 import { app } from '../src/server';
 import * as attachmentService from '../src/services/attachment.service';
@@ -9,7 +10,10 @@ import { removeFile, saveFile } from '../src/services/file-storage.service';
 jest.mock('../src/services/file-storage.service', () => ({
   saveFile: jest.fn(),
   removeFile: jest.fn(),
-  filePath: jest.fn()
+  restoreFile: jest.fn(),
+  fileIntegrity: jest.fn().mockResolvedValue(true),
+  filePath: jest.fn(),
+  imageFilePath: jest.fn()
 }));
 
 jest.mock('../src/config/prisma', () => ({
@@ -47,7 +51,10 @@ describe('attachments', () => {
     jest.mocked(prisma.taskImage.findMany).mockResolvedValue([image] as never);
     const upload = await request(app).post(`/api/tasks/${task.id}/images`).set(auth).attach('file', Buffer.from('jpg'), { filename: 'test.jpg', contentType: 'image/jpeg' });
     expect(upload.status).toBe(201);
-    expect((await request(app).get(`/api/tasks/${task.id}/images`).set(auth)).body).toHaveLength(1);
+    expect(upload.body.contentUrl).toBe(`/api/tasks/${task.id}/images/${image.id}/file`);
+    const listed = await request(app).get(`/api/tasks/${task.id}/images`).set(auth);
+    expect(listed.body).toHaveLength(1);
+    expect(listed.body[0].contentUrl).toBe(`/api/tasks/${task.id}/images/${image.id}/file`);
   });
 
   it('replays image upload by user key and rejects changed content', async () => {
@@ -81,10 +88,27 @@ describe('attachments', () => {
     expect(first.status).toBe(201);
     expect(replay.status).toBe(201);
     expect(replay.body.id).toBe(first.body.id);
+    expect(replay.body.contentUrl).toBe(`/api/tasks/${task.id}/images/${image.id}/file`);
     expect(mismatch.status).toBe(409);
     expect(mismatch.body.error.code).toBe('IDEMPOTENCY_KEY_REUSED');
     expect(jest.mocked(prisma.taskImage.create).mock.calls[0]?.[0].data.contentHash).toMatch(/^[0-9a-f]{64}$/);
     expect(saveFile).toHaveBeenCalledTimes(1);
+  });
+  it('repairs missing metadata during an idempotent replay without changing identity', async () => {
+    const response = { ...image, taskId: task.id, contentHash: 'hash' };
+    jest.mocked(prisma.taskMutation.findUnique).mockResolvedValue({
+      requestHash: 'placeholder',
+      responseBody: response
+    } as never);
+    jest.mocked(prisma.taskImage.findFirst).mockResolvedValue(null);
+    jest.mocked(prisma.taskImage.create).mockResolvedValue(response as never);
+    const file = { buffer: Buffer.from('jpg'), originalname: 'test.jpg', mimetype: 'image/jpeg', size: 3 } as Express.Multer.File;
+    const hash = createHash('sha256').update(file.buffer).update('\0').update(task.id).digest('hex');
+    jest.mocked(prisma.taskMutation.findUnique).mockResolvedValue({ requestHash: hash, responseBody: { ...response, contentHash: hash } } as never);
+    await attachmentService.createImage(user.id, task.id, file, 'repair-key');
+    expect(prisma.taskImage.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ id: image.id, taskId: task.id, contentHash: hash })
+    }));
   });
 
   it('returns one logical image when same key registers concurrently', async () => {

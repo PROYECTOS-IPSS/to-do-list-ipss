@@ -9,7 +9,7 @@ export interface SqliteExecutor {
   withTransactionAsync<T>(task: () => Promise<T>): Promise<T>;
 }
 
-export const DATABASE_VERSION = 4;
+export const DATABASE_VERSION = 6;
 
 const migration = `
 CREATE TABLE IF NOT EXISTS tasks (
@@ -70,6 +70,26 @@ ALTER TABLE sync_operations ADD COLUMN retry_after_at TEXT;
 ALTER TABLE tasks ADD COLUMN source_provider TEXT;
 ALTER TABLE tasks ADD COLUMN source_external_id TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS tasks_owner_source ON tasks(owner_id, source_provider, source_external_id);
+`
+,
+  5: `
+CREATE TABLE task_files_v5 (
+  id TEXT PRIMARY KEY NOT NULL,
+  owner_id TEXT NOT NULL,
+  task_local_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('image')),
+  uri TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+INSERT INTO task_files_v5 SELECT id, owner_id, task_local_id, kind, uri, created_at FROM task_files;
+DROP TABLE task_files;
+ALTER TABLE task_files_v5 RENAME TO task_files;
+CREATE INDEX task_files_owner_task ON task_files(owner_id, task_local_id);
+`,
+  6: `
+ALTER TABLE task_files ADD COLUMN remote_image_id TEXT;
+ALTER TABLE task_files ADD COLUMN content_url TEXT;
+CREATE UNIQUE INDEX task_files_owner_remote_image ON task_files(owner_id, remote_image_id);
 `
 };
 

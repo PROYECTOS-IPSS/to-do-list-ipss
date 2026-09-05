@@ -58,8 +58,8 @@ const taskErrorSchema = z.object({ error: z.object({ message: z.string() }).part
 const request = async (path: string, token: string, options?: RequestInit) => {
   const url = `${apiUrl}${path}`;
   const response = await fetch(url, {
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(options?.headers ?? {}) },
-    ...options
+    ...options,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(options?.headers ?? {}) }
   });
   let body: unknown;
   if (response.status !== 204) {

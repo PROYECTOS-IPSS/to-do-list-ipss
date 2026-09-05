@@ -12,17 +12,20 @@ const idempotencyKey = (value: string | undefined) => {
 export const createImage: RequestHandler = async (request, response, next) => {
   try {
     if (!request.file) throw new HttpError(400, 'IMAGE_FILE_REQUIRED', 'Image file is required.');
-    response.status(201).json(await attachmentService.createImage(
+    response.status(201).json(attachmentService.imageResponse(await attachmentService.createImage(
       request.userId,
       request.params.id as string,
       request.file,
       idempotencyKey(request.get('Idempotency-Key'))
-    ));
+    )));
   } catch (error) { next(error); }
 };
 
 export const listImages: RequestHandler = async (request, response, next) => {
-  try { response.json(await attachmentService.listImages(request.userId, request.params.id as string)); } catch (error) { next(error); }
+  try {
+    const images = await attachmentService.listImages(request.userId, request.params.id as string);
+    response.json(images.map(attachmentService.imageResponse));
+  } catch (error) { next(error); }
 };
 
 export const deleteImage: RequestHandler = async (request, response, next) => {
@@ -45,7 +48,15 @@ export const deleteAudio: RequestHandler = async (request, response, next) => {
   try { await attachmentService.deleteAudio(request.userId, request.params.id as string, request.params.audioId as string); response.status(204).send(); } catch (error) { next(error); }
 };
 export const serveImage: RequestHandler = async (request, response, next) => {
-  try { response.sendFile(await attachmentService.imagePath(request.userId, request.params.id as string, request.params.imageId as string)); } catch (error) { next(error); }
+  try {
+    const image = await attachmentService.imagePath(request.userId, request.params.id as string, request.params.imageId as string);
+    response
+      .type(image.mimeType)
+      .set('Content-Length', String(image.size))
+      .set('Cache-Control', 'private, no-cache')
+      .set('X-Content-Type-Options', 'nosniff')
+      .sendFile(image.path, (error) => { if (error) next(error); });
+  } catch (error) { next(error); }
 };
 
 export const serveAudio: RequestHandler = async (request, response, next) => {

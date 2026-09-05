@@ -1,5 +1,5 @@
 import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View, type ImageProps, type PressableProps, type TextInputProps, type TextProps } from 'react-native';
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from './tokens';
 type TextVariant = 'display' | 'heading' | 'title' | 'body' | 'bodySecondary' | 'caption' | 'label' | 'button';
@@ -35,6 +35,68 @@ export function AppLogo({ compact = false }: { compact?: boolean }) {
 export function AppImage({ uri, token, className = 'w-full h-52 rounded-medium', ...props }: Omit<ImageProps, 'source'> & { uri: string; token?: string; className?: string }) {
   return <Image {...props} source={{ uri, ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}) }} className={className} resizeMode={props.resizeMode ?? 'cover'} />;
 }
+type AuthenticatedImageProps = {
+  identity: string;
+  localUri?: string;
+  remoteUri?: string;
+  token?: string;
+  className?: string;
+};
+
+export function AuthenticatedImage({ identity, localUri, remoteUri, token, className }: AuthenticatedImageProps) {
+  const firstSource = localUri ? 'local' : remoteUri && token ? 'remote' : undefined;
+  const [source, setSource] = useState<'local' | 'remote' | undefined>(firstSource);
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>(firstSource ? 'loading' : 'error');
+  const [retryVersion, setRetryVersion] = useState(0);
+  const retrying = useRef(false);
+  const failed = useRef(new Set<'local' | 'remote'>());
+
+  useEffect(() => {
+    failed.current.clear();
+    retrying.current = false;
+    const next = localUri ? 'local' : remoteUri && token ? 'remote' : undefined;
+    setSource(next);
+    setStatus(next ? 'loading' : 'error');
+    setRetryVersion(0);
+  }, [identity, localUri, remoteUri, token]);
+
+  const handleError = () => {
+    if (!source) return;
+    failed.current.add(source);
+    const fallback = source === 'local' && remoteUri && token && !failed.current.has('remote')
+      ? 'remote'
+      : source === 'remote' && localUri && !failed.current.has('local') ? 'local' : undefined;
+    retrying.current = false;
+    setSource(fallback);
+    setStatus(fallback ? 'loading' : 'error');
+  };
+  const retry = () => {
+    if (retrying.current) return;
+    const next = localUri ? 'local' : remoteUri && token ? 'remote' : undefined;
+    if (!next) return;
+    retrying.current = true;
+    failed.current.clear();
+    setSource(next);
+    setStatus('loading');
+    setRetryVersion((current) => current + 1);
+  };
+  const uri = source === 'local' ? localUri : remoteUri;
+
+  return <View>
+    {uri && status !== 'error' && <AppImage
+      key={`${identity}-${source}-${retryVersion}`}
+      testID={`image-${identity}`}
+      uri={uri}
+      token={source === 'remote' ? token : undefined}
+      className={className}
+      onLoadStart={() => setStatus('loading')}
+      onLoad={() => { retrying.current = false; setStatus('ready'); }}
+      onError={handleError}
+    />}
+    {status === 'loading' && <View className="absolute inset-0 items-center justify-center"><ActivityIndicator color={colors.primary} /></View>}
+    {status === 'error' && <StateMessage title="No se pudo cargar la imagen." tone="error" actionTitle={localUri || (remoteUri && token) ? 'Reintentar' : undefined} onAction={localUri || (remoteUri && token) ? retry : undefined} />}
+  </View>;
+}
 
 type BadgeTone = 'neutral' | 'success' | 'warning' | 'error' | 'accent';
 export function AppBadge({ label, tone = 'neutral' }: { label: string; tone?: BadgeTone }) {
@@ -55,7 +117,7 @@ export function AppFeedback({ message, tone = 'info' }: { message?: string; tone
   if (!message) return null;
   const toneClasses = { success: 'bg-success/15 border-success text-success', error: 'bg-error/15 border-error text-error', info: 'bg-primarySoft border-primary text-primary', warning: 'bg-warning/15 border-warning text-warning' } as const;
   const [background, border, text] = toneClasses[tone].split(' ');
-  return <View accessibilityRole="alert" className={`flex-row items-center rounded-medium border px-lg py-md mb-md ${background} ${border}`}><AppText variant="bodySecondary" className={text}>{message}</AppText></View>;
+  return <View accessibilityRole="alert" className={`rounded-medium border px-lg py-md mb-md ${background} ${border}`}><AppText variant="bodySecondary" className={`${text} flex-shrink`}>{message}</AppText></View>;
 }
 
 type AppButtonProps = Omit<PressableProps, 'children'> & {
