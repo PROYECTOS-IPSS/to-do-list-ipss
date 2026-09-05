@@ -227,6 +227,202 @@ Volúmenes:
 
 > No usar `docker compose down -v` salvo que se quiera eliminar deliberadamente base de datos y archivos subidos.
 
+## Generar e instalar el Development Build
+
+Development Build es cliente Android nativo propio del proyecto. Incluye `expo-dev-client` y módulos usados por SQLite, SecureStore, cámara, GPS y audio; después de instalarlo, carga JavaScript/TypeScript desde Metro.
+
+No es lo mismo que:
+
+- **Metro:** servidor del bundle JavaScript, no instala módulos nativos;
+- **backend:** API y PostgreSQL, independientes del APK;
+- **APK de producción:** binario firmado para distribución final, no configurado aquí;
+- **Expo Go:** cliente genérico que no sustituye validación de módulos y configuración nativos del proyecto.
+
+Configuración auditada:
+
+- script workspace `android`: `expo run:android`;
+- `mobile/android/`: proyecto nativo versionado;
+- package/namespace Android: `com.taskmanager.mobile`;
+- scheme: `task-manager` — manifiesto nativo también registra `exp+task-manager`;
+- `expo-dev-client`: dependencia instalada;
+- proyecto EAS: owner `wuanpack` y `projectId` configurado;
+- único perfil EAS: `development`, con `developmentClient: true` y `distribution: internal`;
+- EAS CLI: no es dependencia y no existe script Yarn para EAS.
+
+Fuentes oficiales: [Development builds](https://docs.expo.dev/develop/development-builds/introduction/), [compilación local](https://docs.expo.dev/guides/local-app-development/), [EAS CLI](https://docs.expo.dev/build/setup/#install-the-latest-eas-cli), [distribución interna EAS](https://docs.expo.dev/build/internal-distribution/) y [variables de entorno](https://docs.expo.dev/guides/environment-variables/).
+
+### Ruta A — compilación local con Android SDK
+
+Requisitos:
+
+- JDK 21; entorno auditado usa Java `21.0.8`;
+- Android Studio o Android SDK compatible con Expo SDK 57;
+- `ANDROID_HOME` apuntando al SDK; `ANDROID_SDK_ROOT` puede depender de instalación;
+- Android SDK Platform/Build Tools solicitados por Gradle;
+- `platform-tools` y `adb` disponibles en `PATH`;
+- teléfono físico con opciones de desarrollador, depuración USB y autorización RSA, o emulador Android iniciado.
+
+Repositorio no fija números de Platform/Build Tools en `mobile/android/app/build.gradle`: los resuelve configuración Expo/Gradle. Instalar componentes que Gradle solicite, sin documentar compatibilidad más amplia no verificada.
+
+Desde raíz, para teléfono por USB:
+
+```bash
+yarn install --frozen-lockfile
+adb devices
+yarn workspace task-manager-mobile android --device
+```
+
+`adb devices` debe mostrar serial con estado `device`. Estado `unauthorized` requiere desbloquear teléfono y aceptar autorización RSA. Lista vacía significa que ADB no detecta teléfono/emulador.
+
+`--device` permite elegir dispositivo físico conectado. Script ejecuta `expo run:android`: compila variante debug mediante SDK local, instala binario, abre app e inicia Metro cuando compilación termina. Primera compilación puede tardar por Gradle, CMake y dependencias nativas.
+
+Para emulador:
+
+1. iniciar AVD desde Android Studio;
+2. confirmar estado `device` con `adb devices`;
+3. ejecutar:
+
+```bash
+yarn workspace task-manager-mobile android
+```
+
+Sin `--device`, Expo usa emulador disponible por defecto. Con varios destinos, usar `--device`.
+
+Docker/backend no necesita estar activo para compilar o instalar cliente. Sí será necesario para autenticación y sincronización después. `expo run:android` inicia Metro; puede detenerse con `Ctrl+C` tras verificar instalación y reiniciarse mediante flujo integrado del proyecto.
+
+### Instalar APK local manualmente
+
+Build debug local exitoso produce artifact Gradle confirmado por metadata actual:
+
+```text
+mobile/android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Normalmente instalación manual no hace falta porque `expo run:android` instala mediante ADB. Para reinstalar APK ya generado desde raíz:
+
+```bash
+adb install -r mobile/android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Con varios dispositivos:
+
+```bash
+adb -s SERIAL install -r mobile/android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Ruta existe solo después de build debug exitoso y está ignorada por Git. F.1.1 confirmó configuración/metadata existente; no compiló ni instaló APK.
+
+### Ruta B — EAS Development Build
+
+`mobile/eas.json` contiene perfil real `development`:
+
+```json
+{
+  "developmentClient": true,
+  "distribution": "internal"
+}
+```
+
+Según Expo, `distribution: internal` cambia build Android predeterminado a APK instalable, salvo `gradleCommand` personalizado. Este perfil no define comando personalizado, por lo que genera APK de distribución interna, no AAB. AAB está orientado a Play Store y no se instala directamente como APK.
+
+EAS CLI no está instalado en dependencias ni existe script Yarn. Sin modificar manifests, usar runner oficial:
+
+```bash
+npx eas-cli@latest login
+cd mobile
+npx eas-cli@latest build --platform android --profile development
+```
+
+Ruta requiere cuenta Expo y login. EAS sube proyecto, compila en servicio remoto y entrega enlace/QR. En teléfono Android se descarga APK y se permite instalación desde fuente desconocida cuando sistema lo solicite. También puede instalarse en emulador desde prompt de EAS o descargando APK.
+
+Enlace interno debe tratarse como acceso al binario: por defecto cualquiera con URL puede descargarlo si proyecto permite acceso no autenticado. Revisar configuración del proyecto Expo antes de compartir.
+
+### Conectar cliente instalado a Metro y backend
+
+Orden recomendado después de instalación:
+
+1. configurar URL pública:
+
+   ```bash
+   yarn setup --non-interactive --api-url http://IP_LAN_DEL_HOST:3000
+   ```
+
+2. iniciar PostgreSQL, migraciones, backend y Metro:
+
+   ```bash
+   yarn dev:docker
+   ```
+
+3. abrir Development Build instalado;
+4. elegir servidor mostrado por launcher, QR o URL de Metro;
+5. mantener teléfono y host en misma LAN.
+
+`EXPO_PUBLIC_API_URL` se incorpora en bundle servido por Metro. Cambiarla no exige reconstruir APK mientras configuración nativa permanezca igual: reiniciar Metro mediante `yarn dev:docker` y hacer reload completo del cliente. Variables `EXPO_PUBLIC_*` quedan visibles en bundle.
+
+### Cuándo reconstruir
+
+Reconstruir e instalar nuevamente normalmente al cambiar:
+
+- dependencia con código nativo;
+- Expo SDK o React Native;
+- plugins Expo;
+- permisos o configuración nativa;
+- package Android o scheme;
+- archivos dentro de `mobile/android/`.
+
+Normalmente basta recarga o reinicio de Metro para:
+
+- JSX, TypeScript o lógica JavaScript;
+- estilos y textos;
+- `EXPO_PUBLIC_API_URL` servida por Metro;
+- assets que Metro pueda actualizar.
+
+Si Metro conserva bundle anterior, detenerlo, iniciar nuevamente y usar limpieza de caché solo cuando exista evidencia de caché stale. No regenerar `mobile/android/` ni borrar caches indiscriminadamente.
+
+### Solución de problemas
+
+#### ADB no detecta teléfono
+
+```bash
+adb devices
+adb kill-server
+adb start-server
+adb devices
+```
+
+Revisar cable con datos, depuración USB, autorización RSA, modo USB y reglas udev en Linux. Primera instalación física documentada usa USB; no se presupone ADB inalámbrico.
+
+#### App instalada pero no conecta a Metro
+
+Revisar misma LAN, firewall, VPN/bridge incorrecto, terminal de Metro, QR/URL, puertos Expo y reload. Confirmar que Development Build corresponde a dependencias/configuración nativas actuales.
+
+#### Backend inaccesible
+
+Desde teléfono probar:
+
+```text
+http://IP_LAN_DEL_HOST:3000/ready
+```
+
+No usar `localhost`: desde teléfono apunta al propio teléfono.
+
+#### Cambio nativo no aparece
+
+Ejecutar nuevamente ruta local o EAS e instalar nuevo Development Build.
+
+#### Fallo Gradle
+
+Leer primer error real de Gradle/CMake y corregir requisito señalado. Resumen final puede ocultar causa inicial. No borrar `android/`, `.gradle`, SDK o caches como respuesta genérica.
+
+### Seguridad del Development Build
+
+- Development Build es para desarrollo, no publicación.
+- No compartir APK suponiendo que contenido público sea secreto.
+- `EXPO_PUBLIC_*` es visible en bundle; nunca guardar JWT, passwords, claves privadas o secretos.
+- URL pública de API no es credencial, pero no publicar endpoints internos innecesariamente.
+- No compartir enlace EAS interno sin revisar acceso.
+- No reutilizar keystore o credenciales fuera de su alcance sin comprender firma, actualización e identidad de aplicación.
+
 ## Uso desde dispositivo Android
 
 1. Obtener IPv4 LAN del host en interfaz física conectada a misma red del teléfono.

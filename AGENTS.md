@@ -91,6 +91,15 @@ Android:
 yarn workspace task-manager-mobile android
 ```
 
+Referencia operativa de Development Build Android:
+
+- guía canónica: `README.md`, sección **Generar e instalar el Development Build**;
+- local: `yarn workspace task-manager-mobile android` para emulador; añadir `--device` para teléfono físico;
+- reconstruir tras cambios de código/configuración nativa, dependencias nativas, plugins, permisos, Expo SDK/React Native, package o scheme;
+- no reconstruir por JSX/TypeScript, estilos, textos o `EXPO_PUBLIC_API_URL`; recargar/reiniciar Metro;
+- EAS CLI no es dependencia: usar `npx eas-cli@latest build --platform android --profile development` desde `mobile/`;
+- no declarar Android/Gradle/EAS validado sin build, instalación y ejercicio reales.
+
 No inventar scripts. Docker no se instala ni inicia con `yarn setup`; setup valida herramientas y prepara único `.env` raíz.
 
 ## Reglas de edición

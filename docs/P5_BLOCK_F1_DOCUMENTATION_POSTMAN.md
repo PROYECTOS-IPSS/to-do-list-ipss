@@ -334,7 +334,112 @@ Gates finales:
 27. Ejecutar Logout.
 28. Confirmar que consola no imprimió secretos.
 
-## 22. Estado final
+## 22. F.1.1 — Development Build Android
+
+### Alcance y línea base
+
+F.1.1 amplía documentación operativa sin cambiar producto, manifests, scripts, dependencias, lockfile, Docker, Prisma ni colección Postman. Línea base auditada:
+
+- rama `docs/update`;
+- HEAD `b59e6f4 docs: actualizar guía y colección Postman`;
+- worktree limpio al iniciar F.1.1;
+- `stash@{0}` protegido e intacto.
+
+### Configuración Android/Expo confirmada
+
+- `mobile/package.json`: script `android` ejecuta `expo run:android`; `expo-dev-client` está instalado.
+- `mobile/app.json`: package `com.taskmanager.mobile`, scheme `task-manager`, owner `wuanpack`, projectId `a1560a2e-5fc2-45b4-8cd7-7507ad38416d`.
+- `mobile/android/`: proyecto nativo versionado; manifiesto registra `task-manager` y `exp+task-manager`.
+- `mobile/eas.json`: único perfil `development`, con `developmentClient: true` y `distribution: internal`.
+- EAS CLI no es dependencia ni tiene script Yarn.
+- Artifact debug local previo observado: `mobile/android/app/build/outputs/apk/debug/app-debug.apk`; metadata confirma variante `debug`, package `com.taskmanager.mobile` y tipo APK.
+
+### Ruta local documentada
+
+Prerequisitos: JDK 21, Android Studio/SDK, Platform/Build Tools resueltos por Expo/Gradle, `ANDROID_HOME`, `platform-tools`, ADB y teléfono USB autorizado o emulador iniciado. Entorno auditado dispone de Java `21.0.8`, SDK en `ANDROID_HOME` y ADB `1.0.41`.
+
+Comandos canónicos:
+
+```bash
+adb devices
+yarn workspace task-manager-mobile android --device
+```
+
+Para emulador iniciado:
+
+```bash
+yarn workspace task-manager-mobile android
+```
+
+Expo confirma que `run:android` compila debug nativo, instala binario e inicia Metro. Instalación manual posterior:
+
+```bash
+adb install -r mobile/android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+### Ruta EAS documentada
+
+Runner oficial sin modificar manifests:
+
+```bash
+npx eas-cli@latest login
+cd mobile
+npx eas-cli@latest build --platform android --profile development
+```
+
+Requiere cuenta Expo. EAS entrega enlace/QR. Según documentación oficial, `distribution: internal` genera APK Android instalable por defecto cuando no existe `gradleCommand` personalizado; configuración actual cumple ambas condiciones. No se presentó como AAB ni build de producción.
+
+### Metro, backend y variables
+
+Después de instalar cliente:
+
+```bash
+yarn setup --non-interactive --api-url http://IP_LAN_DEL_HOST:3000
+yarn dev:docker
+```
+
+Development Build se conecta a Metro por LAN; app consume backend mediante `EXPO_PUBLIC_API_URL`. Expo incorpora variables `EXPO_PUBLIC_*` en bundle, por lo que son públicas. Cambio solo de URL exige reload completo/reinicio de Metro, no rebuild nativo.
+
+### Criterio de rebuild
+
+Rebuild: dependencias/código nativo, Expo SDK/React Native, plugins, permisos, app config nativa, package, scheme o `mobile/android/`.
+
+Sin rebuild: JSX/TypeScript, lógica JavaScript, estilos, textos, assets servidos por Metro y `EXPO_PUBLIC_API_URL`.
+
+### Troubleshooting y seguridad
+
+README cubre:
+
+- ADB vacío o `unauthorized`;
+- app sin conexión a Metro;
+- backend inaccesible desde teléfono y prohibición práctica de `localhost`;
+- cambio nativo ausente;
+- lectura del primer error real Gradle/CMake sin borrar caches indiscriminadamente;
+- Development Build no publicable;
+- secretos prohibidos en `EXPO_PUBLIC_*`;
+- APK y URL interna EAS no tratados como secretos;
+- revisión de acceso antes de compartir enlace;
+- cautela con firma, keystore e identidad del package.
+
+### Fuentes
+
+- https://docs.expo.dev/develop/development-builds/introduction/
+- https://docs.expo.dev/guides/local-app-development/
+- https://docs.expo.dev/build/setup/
+- https://docs.expo.dev/build/internal-distribution/
+- https://docs.expo.dev/guides/environment-variables/
+
+### Validación F.1.1
+
+- `git diff --check`: pasa.
+- diff limitado a `README.md`, `AGENTS.md` y este informe; Postman sin cambios.
+- `yarn typecheck`: pasa.
+- `yarn test:backend`: 8 suites, 80 tests, pasa.
+- `yarn test:mobile`: 14 suites, 127 tests, pasa.
+- `yarn lint`: pasa.
+- F.1.1 no ejecutó Gradle, EAS, emulador, instalación ADB ni hardware. No declara APK nuevo generado ni app Android validada. Ruta y comandos provienen de configuración real, artifact/metadata local preexistente y documentación oficial vigente.
+
+## 23. Estado final
 
 Solo documentación y colección Postman modificadas. Producto, configuración, scripts, manifests, Compose, Prisma y lockfile quedan fuera del diff. Sin commit ni push. Stash protegido permanece intacto.
 
