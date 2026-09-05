@@ -272,3 +272,67 @@ export function StateMessage({ title, actionTitle, onAction, tone = 'neutral' }:
     {actionTitle && onAction && <AppButton title={actionTitle} variant="secondary" onPress={onAction} className="self-start mt-sm" />}
   </Card>;
 }
+type DetailSectionProps = {
+  title: string;
+  description?: string;
+  action?: ReactNode;
+  variant?: 'surface' | 'flat';
+  children: ReactNode;
+};
+
+export function DetailSection({ title, description, action, variant = 'surface', children }: DetailSectionProps) {
+  return <View accessibilityRole="summary" className={`${variant === 'surface' ? 'rounded-large border border-border bg-surfaceElevated p-lg shadow-small' : ''} mb-md`}>
+    <View className="flex-row items-start justify-between gap-md">
+      <View className="flex-1">
+        <AppText variant="title">{title}</AppText>
+        {description && <AppText variant="caption" muted className="mt-xs">{description}</AppText>}
+      </View>
+      {action}
+    </View>
+    <View className="mt-md">{children}</View>
+  </View>;
+}
+
+export function MetadataRow({ label, value }: { label: string; value: string }) {
+  return <View className="flex-row items-start justify-between gap-md border-b border-border py-sm last:border-b-0">
+    <AppText variant="caption" muted>{label}</AppText>
+    <AppText variant="bodySecondary" className="flex-1 text-right">{value}</AppText>
+  </View>;
+}
+
+type AttachmentSectionProps = {
+  title: string;
+  description: string;
+  addTitle: string;
+  addLoading?: boolean;
+  onAdd: () => void;
+  disabled?: boolean;
+  emptyTitle: string;
+  children: ReactNode;
+};
+
+export function AttachmentSection({ title, description, addTitle, addLoading = false, onAdd, disabled = false, emptyTitle, children }: AttachmentSectionProps) {
+  return <DetailSection title={title} description={description} action={<AppButton title={addLoading ? 'Guardando...' : addTitle} variant="secondary" onPress={onAdd} loading={addLoading} disabled={disabled} />}>
+    {children || <InlineEmptyState title={emptyTitle} />}
+  </DetailSection>;
+}
+
+export function InlineEmptyState({ title }: { title: string }) {
+  return <View className="rounded-medium border border-dashed border-border bg-surfaceMuted px-md py-lg">
+    <AppText variant="bodySecondary" muted>{title}</AppText>
+  </View>;
+}
+
+export function LocationPanel({ location, emptyTitle, children }: { location?: { latitude: number; longitude: number; accuracy: number }; emptyTitle: string; children?: ReactNode }) {
+  return <DetailSection title="Ubicación" description="Referencia guardada con esta tarea." action={children}>
+    {location ? <View className="gap-xs"><MetadataRow label="Coordenadas" value={`${location.latitude}, ${location.longitude}`} /><MetadataRow label="Precisión" value={`${location.accuracy} m`} /></View> : <InlineEmptyState title={emptyTitle} />}
+  </DetailSection>;
+}
+
+export function DangerZone({ children }: { children: ReactNode }) {
+  return <View className="rounded-large border border-error bg-errorSoft p-lg mb-md">
+    <AppText variant="title" className="text-error">Zona destructiva</AppText>
+    <AppText variant="bodySecondary" muted className="mt-xs">Estas acciones no se pueden deshacer.</AppText>
+    <View className="mt-md">{children}</View>
+  </View>;
+}
