@@ -1,131 +1,562 @@
 {
   "info": {
-    "name": "Task Manager API",
-    "description": "Etapa 8 API audit collection. Set variables before running; no real secrets are stored.",
+    "name": "Task Manager API — contrato vigente",
+    "description": "Colección manual del backend vigente. Ejecutar carpetas en orden, seleccionar archivos multipart localmente y dejar deletes para Cleanup. Audio representa API backend; app móvil estable conserva audio solo local. No contiene tokens, secretos ni rutas locales reales.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:3000" },
-    { "key": "token", "value": "" },
-    { "key": "taskId", "value": "" },
-    { "key": "otherTaskId", "value": "" },
-    { "key": "imageId", "value": "" },
-    { "key": "audioId", "value": "" }
+    { "key": "baseUrl", "value": "http://localhost:3000", "type": "string" },
+    { "key": "email", "value": "postman.user@example.test", "type": "string" },
+    { "key": "password", "value": "PostmanDemo-2026!", "type": "string" },
+    { "key": "token", "value": "", "type": "string" },
+    { "key": "otherEmail", "value": "postman.other@example.test", "type": "string" },
+    { "key": "otherPassword", "value": "PostmanOther-2026!", "type": "string" },
+    { "key": "otherToken", "value": "", "type": "string" },
+    { "key": "taskId", "value": "", "type": "string" },
+    { "key": "taskVersion", "value": "", "type": "string" },
+    { "key": "imageId", "value": "", "type": "string" },
+    { "key": "audioId", "value": "", "type": "string" },
+    { "key": "createIdempotencyKey", "value": "", "type": "string" },
+    { "key": "imageIdempotencyKey", "value": "", "type": "string" }
   ],
   "item": [
     {
-      "name": "Auth",
+      "name": "Health",
+      "description": "Lecturas públicas. /ready consulta PostgreSQL y puede devolver 503 si DB no está lista.",
       "item": [
         {
-          "name": "Register valid",
-          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Postman User\",\n  \"email\": \"postman@example.com\",\n  \"password\": \"password123\"\n}" }, "url": "{{baseUrl}}/api/auth/register" }
+          "name": "1. Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "description": "Comprueba proceso HTTP. Esperado: 200 y { status: 'ok' }.",
+            "url": "{{baseUrl}}/health"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Health responde 200', () => pm.response.to.have.status(200));",
+            "pm.test('Health devuelve ok', () => pm.expect(pm.response.json()).to.eql({ status: 'ok' }));"
+          ] } }]
         },
         {
-          "name": "Register invalid",
-          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"\",\n  \"email\": \"invalid\",\n  \"password\": \"short\"\n}" }, "url": "{{baseUrl}}/api/auth/register" }
+          "name": "2. Ready",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "description": "Comprueba conectividad PostgreSQL. Esperado en entorno listo: 200 y { status: 'ready' }; backend devuelve 503 not-ready si DB falla.",
+            "url": "{{baseUrl}}/ready"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Ready responde 200', () => pm.response.to.have.status(200));",
+            "pm.test('Ready confirma base', () => pm.expect(pm.response.json()).to.eql({ status: 'ready' }));"
+          ] } }]
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "description": "Credenciales incluidas son ficticias para entorno local. Register puede devolver 409 si email ya existe; cambie email o continúe con Login.",
+      "item": [
+        {
+          "name": "3. Register",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Postman User\",\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}", "options": { "raw": { "language": "json" } } },
+            "description": "Crea usuario. name 1..100, email válido, password 8..72. Esperado primera vez: 201.",
+            "url": "{{baseUrl}}/api/auth/register"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Register responde 201', () => pm.response.to.have.status(201));",
+            "pm.test('Register devuelve usuario y token', () => { const body = pm.response.json(); pm.expect(body.user.id).to.be.a('string'); pm.expect(body.token).to.be.a('string'); pm.expect(body.user).not.to.have.property('passwordHash'); });"
+          ] } }]
         },
         {
-          "name": "Login valid",
-          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"postman@example.com\",\n  \"password\": \"password123\"\n}" }, "url": "{{baseUrl}}/api/auth/login" }
+          "name": "4. Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}", "options": { "raw": { "language": "json" } } },
+            "description": "Guarda token en variable de colección únicamente si respuesta 200 contiene token string. No lo imprime.",
+            "url": "{{baseUrl}}/api/auth/login"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Login responde 200', () => pm.response.to.have.status(200));",
+            "const body = pm.response.json();",
+            "pm.test('Login devuelve contrato mínimo', () => { pm.expect(body.user.id).to.be.a('string'); pm.expect(body.token).to.be.a('string').and.not.empty; });",
+            "if (pm.response.code === 200 && typeof body.token === 'string' && body.token) pm.collectionVariables.set('token', body.token);"
+          ] } }]
         },
         {
-          "name": "Login invalid",
-          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"postman@example.com\",\n  \"password\": \"wrong-password\"\n}" }, "url": "{{baseUrl}}/api/auth/login" }
-        },
-        {
-          "name": "Me with token",
-          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{baseUrl}}/api/auth/me" }
-        },
-        {
-          "name": "Me without token",
-          "request": { "method": "GET", "url": "{{baseUrl}}/api/auth/me" }
-        },
-        {
-          "name": "Logout",
-          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{baseUrl}}/api/auth/logout" }
+          "name": "5. Me",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}", "type": "text" }],
+            "description": "Devuelve usuario actual sin passwordHash.",
+            "url": "{{baseUrl}}/api/auth/me"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Me responde 200', () => pm.response.to.have.status(200));",
+            "pm.test('Me no expone hash', () => { const body = pm.response.json(); pm.expect(body.id).to.be.a('string'); pm.expect(body).not.to.have.property('passwordHash'); });"
+          ] } }]
         }
       ]
     },
     {
       "name": "Tasks",
+      "description": "CRUD con Bearer. Create usa clave estable para demostrar replay. Update usa versión decimal directa en If-Match.",
       "item": [
         {
-          "name": "Create task",
-          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"title\": \"Postman task\",\n  \"description\": \"API audit task\"\n}" }, "url": "{{baseUrl}}/api/tasks" }
+          "name": "6. Create task",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "if (!pm.collectionVariables.get('createIdempotencyKey')) pm.collectionVariables.set('createIdempotencyKey', pm.variables.replaceIn('{{$guid}}'));"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Create task responde 201', () => pm.response.to.have.status(201));",
+              "const body = pm.response.json();",
+              "pm.test('Create task devuelve identidad y versión', () => { pm.expect(body.id).to.be.a('string'); pm.expect(body.title).to.eql('Tarea Postman'); pm.expect(body.version).to.be.a('number'); });",
+              "if (pm.response.code === 201 && typeof body.id === 'string') pm.collectionVariables.set('taskId', body.id);",
+              "if (pm.response.code === 201 && Number.isInteger(body.version)) pm.collectionVariables.set('taskVersion', String(body.version));"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}", "type": "text" },
+              { "key": "Idempotency-Key", "value": "{{createIdempotencyKey}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Tarea Postman\",\n  \"description\": \"Creada desde colección\",\n  \"completed\": false\n}", "options": { "raw": { "language": "json" } } },
+            "description": "Genera createIdempotencyKey solo cuando está vacía. Para una nueva creación lógica, borre esa variable antes de ejecutar. No la borre antes de Replay o Conflict.",
+            "url": "{{baseUrl}}/api/tasks"
+          }
         },
         {
-          "name": "Create task invalid",
-          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"title\": \"\"\n}" }, "url": "{{baseUrl}}/api/tasks" }
+          "name": "7. Replay create with same key",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}", "type": "text" },
+              { "key": "Idempotency-Key", "value": "{{createIdempotencyKey}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Tarea Postman\",\n  \"description\": \"Creada desde colección\",\n  \"completed\": false\n}", "options": { "raw": { "language": "json" } } },
+            "description": "Misma clave y mismo payload. Esperado: 201 y mismo taskId lógico; clave no se regenera.",
+            "url": "{{baseUrl}}/api/tasks"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Replay create responde 201', () => pm.response.to.have.status(201));",
+            "pm.test('Replay conserva identidad', () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('taskId')));"
+          ] } }]
         },
         {
-          "name": "List tasks",
-          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{baseUrl}}/api/tasks" }
+          "name": "8. Conflict same key different payload",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}", "type": "text" },
+              { "key": "Idempotency-Key", "value": "{{createIdempotencyKey}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Payload diferente\",\n  \"description\": \"Debe producir conflicto\",\n  \"completed\": false\n}", "options": { "raw": { "language": "json" } } },
+            "description": "Misma clave de Create con payload distinto. Esperado: 409 IDEMPOTENCY_KEY_REUSED.",
+            "url": "{{baseUrl}}/api/tasks"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Cambio de payload responde 409', () => pm.response.to.have.status(409));",
+            "pm.test('Código de idempotencia correcto', () => pm.expect(pm.response.json().error.code).to.eql('IDEMPOTENCY_KEY_REUSED'));"
+          ] } }]
         },
         {
-          "name": "List completed tasks",
-          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{baseUrl}}/api/tasks?completed=true" }
+          "name": "9. List tasks",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}", "type": "text" }],
+            "description": "Lista tareas del usuario autenticado, ordenadas por createdAt descendente.",
+            "url": "{{baseUrl}}/api/tasks"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('List tasks responde 200', () => pm.response.to.have.status(200));",
+            "pm.test('List tasks devuelve arreglo', () => pm.expect(pm.response.json()).to.be.an('array'));"
+          ] } }]
         },
         {
-          "name": "Get task",
-          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{baseUrl}}/api/tasks/{{taskId}}" }
+          "name": "10. List completed tasks",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}", "type": "text" }],
+            "description": "Filtro real completed=true. También acepta completed=false.",
+            "url": "{{baseUrl}}/api/tasks?completed=true"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Filtro completed responde 200', () => pm.response.to.have.status(200));",
+            "pm.test('Filtro devuelve arreglo', () => pm.expect(pm.response.json()).to.be.an('array'));"
+          ] } }]
         },
         {
-          "name": "Get missing task",
-          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{baseUrl}}/api/tasks/00000000-0000-4000-8000-000000000000" }
+          "name": "11. Get task",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}", "type": "text" }],
+            "description": "Obtiene tarea propia por UUID remoto.",
+            "url": "{{baseUrl}}/api/tasks/{{taskId}}"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Get task responde 200', () => pm.response.to.have.status(200));",
+            "pm.test('Get task coincide con ID', () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('taskId')));"
+          ] } }]
         },
         {
-          "name": "Update task",
-          "request": { "method": "PATCH", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"completed\": true\n}" }, "url": "{{baseUrl}}/api/tasks/{{taskId}}" }
-        },
-        {
-          "name": "Read other user task",
-          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{baseUrl}}/api/tasks/{{otherTaskId}}" }
-        },
-        {
-          "name": "Delete task",
-          "request": { "method": "DELETE", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{baseUrl}}/api/tasks/{{taskId}}" }
+          "name": "12. Update task with version",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}", "type": "text" },
+              { "key": "If-Match", "value": "{{taskVersion}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"completed\": true,\n  \"latitude\": 12.1364,\n  \"longitude\": -86.2514,\n  \"locationAccuracy\": 15,\n  \"locationTimestamp\": \"2026-09-05T12:00:00.000Z\"\n}", "options": { "raw": { "language": "json" } } },
+            "description": "Envía versión decimal directa. Ubicación debe incluir latitude, longitude, locationAccuracy y locationTimestamp juntas; accuracy máxima 100 m.",
+            "url": "{{baseUrl}}/api/tasks/{{taskId}}"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Update responde 200', () => pm.response.to.have.status(200));",
+            "const body = pm.response.json();",
+            "pm.test('Update incrementa versión', () => pm.expect(body.version).to.be.a('number'));",
+            "if (pm.response.code === 200 && Number.isInteger(body.version)) pm.collectionVariables.set('taskVersion', String(body.version));"
+          ] } }]
         }
       ]
     },
     {
       "name": "Images",
+      "description": "Seleccione archivo local manualmente. Campo exacto file; JPEG, PNG o WebP; máximo 10 MiB. No añadir Content-Type multipart manualmente.",
       "item": [
         {
-          "name": "Upload image",
-          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "body": { "mode": "formdata", "formdata": [{ "key": "file", "type": "file", "src": "" }] }, "url": "{{baseUrl}}/api/tasks/{{taskId}}/images" }
+          "name": "13. Upload image",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "if (!pm.collectionVariables.get('imageIdempotencyKey')) pm.collectionVariables.set('imageIdempotencyKey', pm.variables.replaceIn('{{$guid}}'));"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Upload image responde 201', () => pm.response.to.have.status(201));",
+              "const body = pm.response.json();",
+              "pm.test('Upload image devuelve metadata', () => { pm.expect(body.id).to.be.a('string'); pm.expect(body.taskId).to.eql(pm.collectionVariables.get('taskId')); pm.expect(body.contentUrl).to.include('/images/'); });",
+              "if (pm.response.code === 201 && typeof body.id === 'string') pm.collectionVariables.set('imageId', body.id);"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}", "type": "text" },
+              { "key": "Idempotency-Key", "value": "{{imageIdempotencyKey}}", "type": "text" }
+            ],
+            "body": { "mode": "formdata", "formdata": [{ "key": "file", "type": "file", "src": "" }] },
+            "description": "Seleccione archivo. Clave se genera solo si está vacía y queda estable para replay manual del mismo archivo/bytes.",
+            "url": "{{baseUrl}}/api/tasks/{{taskId}}/images"
+          }
         },
         {
-          "name": "List images",
-          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{baseUrl}}/api/tasks/{{taskId}}/images" }
+          "name": "14. List images",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}", "type": "text" }],
+            "description": "Lista metadata y contentUrl protegido.",
+            "url": "{{baseUrl}}/api/tasks/{{taskId}}/images"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('List images responde 200', () => pm.response.to.have.status(200));",
+            "pm.test('List images devuelve arreglo', () => pm.expect(pm.response.json()).to.be.an('array'));"
+          ] } }]
         },
         {
-          "name": "Delete image",
-          "request": { "method": "DELETE", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{baseUrl}}/api/tasks/{{taskId}}/images/{{imageId}}" }
-        },
-        {
-          "name": "Invalid image mime",
-          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "body": { "mode": "formdata", "formdata": [{ "key": "file", "type": "file", "src": "" }] }, "url": "{{baseUrl}}/api/tasks/{{taskId}}/images" }
+          "name": "15. Download protected image",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}", "type": "text" }],
+            "description": "Respuesta binaria privada. Postman puede mostrarla o guardarla. No usar /uploads ni token en query.",
+            "url": "{{baseUrl}}/api/tasks/{{taskId}}/images/{{imageId}}/file"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Descarga imagen responde 200', () => pm.response.to.have.status(200));",
+            "pm.test('Descarga imagen declara MIME', () => pm.expect(pm.response.headers.get('Content-Type')).to.match(/^image\//));"
+          ] } }]
         }
       ]
     },
     {
       "name": "Audio",
+      "description": "API backend vigente, independiente de app móvil estable. Seleccione archivo local. Campo file + duration; máximo 10 MiB y (0, 3600] segundos.",
       "item": [
         {
-          "name": "Upload audio",
-          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "body": { "mode": "formdata", "formdata": [{ "key": "duration", "value": "2.5", "type": "text" }, { "key": "file", "type": "file", "src": "" }] }, "url": "{{baseUrl}}/api/tasks/{{taskId}}/audios" }
+          "name": "16. Upload audio backend",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}", "type": "text" }],
+            "body": { "mode": "formdata", "formdata": [
+              { "key": "duration", "value": "2.5", "type": "text" },
+              { "key": "file", "type": "file", "src": "" }
+            ] },
+            "description": "MIME: audio/mp4, audio/mpeg, audio/aac, audio/wav o audio/x-m4a. No fijar Content-Type multipart.",
+            "url": "{{baseUrl}}/api/tasks/{{taskId}}/audios"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Upload audio responde 201', () => pm.response.to.have.status(201));",
+            "const body = pm.response.json();",
+            "pm.test('Upload audio devuelve metadata', () => { pm.expect(body.id).to.be.a('string'); pm.expect(body.duration).to.be.a('number'); });",
+            "if (pm.response.code === 201 && typeof body.id === 'string') pm.collectionVariables.set('audioId', body.id);"
+          ] } }]
         },
         {
-          "name": "Upload invalid duration",
-          "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "body": { "mode": "formdata", "formdata": [{ "key": "duration", "value": "0", "type": "text" }, { "key": "file", "type": "file", "src": "" }] }, "url": "{{baseUrl}}/api/tasks/{{taskId}}/audios" }
+          "name": "17. List audio backend",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}", "type": "text" }],
+            "description": "Lista metadata de audio backend para tarea propia.",
+            "url": "{{baseUrl}}/api/tasks/{{taskId}}/audios"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('List audio responde 200', () => pm.response.to.have.status(200));",
+            "pm.test('List audio devuelve arreglo', () => pm.expect(pm.response.json()).to.be.an('array'));"
+          ] } }]
         },
         {
-          "name": "List audio",
-          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{baseUrl}}/api/tasks/{{taskId}}/audios" }
+          "name": "18. Download protected audio",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}", "type": "text" }],
+            "description": "Respuesta binaria privada. Requiere ownership y Bearer; nunca /uploads o token en query.",
+            "url": "{{baseUrl}}/api/tasks/{{taskId}}/audios/{{audioId}}/file"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Descarga audio responde 200', () => pm.response.to.have.status(200));"
+          ] } }]
+        }
+      ]
+    },
+    {
+      "name": "Authorization and ownership",
+      "description": "Segundo usuario explícito. Solicitud de ownership usa otherToken directamente; nunca cambia token activo de forma silenciosa.",
+      "item": [
+        {
+          "name": "19. Register second user",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Postman Other\",\n  \"email\": \"{{otherEmail}}\",\n  \"password\": \"{{otherPassword}}\"\n}", "options": { "raw": { "language": "json" } } },
+            "description": "Esperado primera vez: 201. Si ya existe, cambie otherEmail o continúe con Login second user.",
+            "url": "{{baseUrl}}/api/auth/register"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Registro secundario responde 201', () => pm.response.to.have.status(201));"
+          ] } }]
         },
         {
-          "name": "Delete audio",
-          "request": { "method": "DELETE", "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }], "url": "{{baseUrl}}/api/tasks/{{taskId}}/audios/{{audioId}}" }
+          "name": "20. Login second user",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{otherEmail}}\",\n  \"password\": \"{{otherPassword}}\"\n}", "options": { "raw": { "language": "json" } } },
+            "description": "Guarda otherToken sin reemplazar token principal y sin imprimirlo.",
+            "url": "{{baseUrl}}/api/auth/login"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Login secundario responde 200', () => pm.response.to.have.status(200));",
+            "const body = pm.response.json();",
+            "pm.test('Login secundario devuelve token', () => pm.expect(body.token).to.be.a('string').and.not.empty);",
+            "if (pm.response.code === 200 && typeof body.token === 'string' && body.token) pm.collectionVariables.set('otherToken', body.token);"
+          ] } }]
+        },
+        {
+          "name": "21. Other user cannot read primary task",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{otherToken}}", "type": "text" }],
+            "description": "Usuario B intenta leer taskId de usuario A. Esperado: 404 para ocultar existencia.",
+            "url": "{{baseUrl}}/api/tasks/{{taskId}}"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Ownership ajeno responde 404', () => pm.response.to.have.status(404));",
+            "pm.test('Código no revela recurso', () => pm.expect(pm.response.json().error.code).to.eql('TASK_NOT_FOUND'));"
+          ] } }]
+        },
+        {
+          "name": "22. Me without token",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "description": "Sin Authorization. Esperado: 401 UNAUTHORIZED.",
+            "url": "{{baseUrl}}/api/auth/me"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Sin token responde 401', () => pm.response.to.have.status(401));",
+            "pm.test('Código unauthorized', () => pm.expect(pm.response.json().error.code).to.eql('UNAUTHORIZED'));"
+          ] } }]
+        }
+      ]
+    },
+    {
+      "name": "Validation and errors",
+      "description": "Casos negativos con status derivados de schemas, servicios y tests vigentes. Requests multipart requieren selección manual de archivo.",
+      "item": [
+        {
+          "name": "23. Invalid task payload",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"\"\n}", "options": { "raw": { "language": "json" } } },
+            "description": "Título vacío viola schema. Esperado: 400 VALIDATION_ERROR.",
+            "url": "{{baseUrl}}/api/tasks"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Payload inválido responde 400', () => pm.response.to.have.status(400));",
+            "pm.test('Código de validación', () => pm.expect(pm.response.json().error.code).to.eql('VALIDATION_ERROR'));"
+          ] } }]
+        },
+        {
+          "name": "24. Missing task",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}", "type": "text" }],
+            "description": "UUID válido inexistente. Esperado: 404 TASK_NOT_FOUND.",
+            "url": "{{baseUrl}}/api/tasks/00000000-0000-4000-8000-000000000000"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Tarea inexistente responde 404', () => pm.response.to.have.status(404));",
+            "pm.test('Código task not found', () => pm.expect(pm.response.json().error.code).to.eql('TASK_NOT_FOUND'));"
+          ] } }]
+        },
+        {
+          "name": "25. Stale task version",
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "const current = Number(pm.collectionVariables.get('taskVersion'));",
+              "pm.variables.set('staleVersion', String(Number.isInteger(current) && current > 0 ? current - 1 : 0));"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('Versión stale responde 409', () => pm.response.to.have.status(409));",
+              "pm.test('Código version conflict', () => pm.expect(pm.response.json().error.code).to.eql('TASK_VERSION_CONFLICT'));"
+            ] } }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}", "type": "text" },
+              { "key": "If-Match", "value": "{{staleVersion}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Cambio con versión antigua\"\n}", "options": { "raw": { "language": "json" } } },
+            "description": "Ejecutar después de Update, cuando taskVersion > 0. Calcula versión anterior como variable local, no altera taskVersion.",
+            "url": "{{baseUrl}}/api/tasks/{{taskId}}"
+          }
+        },
+        {
+          "name": "26. Invalid image MIME",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}", "type": "text" }],
+            "body": { "mode": "formdata", "formdata": [{ "key": "file", "type": "file", "src": "", "contentType": "text/plain" }] },
+            "description": "Seleccione archivo de texto. MIME text/plain no permitido. Esperado: 400 INVALID_IMAGE_MIME.",
+            "url": "{{baseUrl}}/api/tasks/{{taskId}}/images"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('MIME imagen inválido responde 400', () => pm.response.to.have.status(400));",
+            "pm.test('Código MIME imagen', () => pm.expect(pm.response.json().error.code).to.eql('INVALID_IMAGE_MIME'));"
+          ] } }]
+        },
+        {
+          "name": "27. Invalid audio duration",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}", "type": "text" }],
+            "body": { "mode": "formdata", "formdata": [
+              { "key": "duration", "value": "0", "type": "text" },
+              { "key": "file", "type": "file", "src": "" }
+            ] },
+            "description": "Seleccione audio válido; duration=0 viola (0, 3600]. Esperado: 400 VALIDATION_ERROR.",
+            "url": "{{baseUrl}}/api/tasks/{{taskId}}/audios"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Duración inválida responde 400', () => pm.response.to.have.status(400));",
+            "pm.test('Código validación audio', () => pm.expect(pm.response.json().error.code).to.eql('VALIDATION_ERROR'));"
+          ] } }]
+        },
+        {
+          "name": "28. Invalid audio MIME",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}", "type": "text" }],
+            "body": { "mode": "formdata", "formdata": [
+              { "key": "duration", "value": "2", "type": "text" },
+              { "key": "file", "type": "file", "src": "", "contentType": "audio/ogg" }
+            ] },
+            "description": "Seleccione archivo y fuerce audio/ogg. Esperado: 400 INVALID_AUDIO_MIME.",
+            "url": "{{baseUrl}}/api/tasks/{{taskId}}/audios"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('MIME audio inválido responde 400', () => pm.response.to.have.status(400));",
+            "pm.test('Código MIME audio', () => pm.expect(pm.response.json().error.code).to.eql('INVALID_AUDIO_MIME'));"
+          ] } }]
+        }
+      ]
+    },
+    {
+      "name": "Cleanup",
+      "description": "Operaciones destructivas visibles y manuales. Ejecutar al final; colección no dispara DELETE desde scripts.",
+      "item": [
+        {
+          "name": "29. Delete image",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}", "type": "text" }],
+            "description": "Elimina metadata y luego archivo de imagen propia. Esperado: 204.",
+            "url": "{{baseUrl}}/api/tasks/{{taskId}}/images/{{imageId}}"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Delete image responde 204', () => pm.response.to.have.status(204));"
+          ] } }]
+        },
+        {
+          "name": "30. Delete audio backend",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}", "type": "text" }],
+            "description": "Elimina metadata y archivo de audio backend propio. Esperado: 204.",
+            "url": "{{baseUrl}}/api/tasks/{{taskId}}/audios/{{audioId}}"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Delete audio responde 204', () => pm.response.to.have.status(204));"
+          ] } }]
+        },
+        {
+          "name": "31. Delete task",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}", "type": "text" },
+              { "key": "If-Match", "value": "{{taskVersion}}", "type": "text" }
+            ],
+            "description": "Elimina tarea propia con versión vigente. Cascada elimina metadata y servicio intenta limpiar binarios. Esperado: 204.",
+            "url": "{{baseUrl}}/api/tasks/{{taskId}}"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Delete task responde 204', () => pm.response.to.have.status(204));"
+          ] } }]
+        },
+        {
+          "name": "32. Logout",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}", "type": "text" }],
+            "description": "Logout backend stateless. Esperado: 204. Cliente sigue siendo responsable de borrar token local.",
+            "url": "{{baseUrl}}/api/auth/logout"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('Logout responde 204', () => pm.response.to.have.status(204));"
+          ] } }]
         }
       ]
     }
