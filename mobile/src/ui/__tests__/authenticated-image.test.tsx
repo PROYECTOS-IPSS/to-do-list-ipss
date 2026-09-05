@@ -3,8 +3,9 @@ import { AuthenticatedImage } from '../components';
 
 describe('AuthenticatedImage', () => {
   it('prefers local source without credentials or remote request', async () => {
-    const screen = await render(<AuthenticatedImage identity="owner:local-a" localUri="file:///a.jpg" remoteUri="https://api.test/a" token="token-a" />);
+    const screen = await render(<AuthenticatedImage identity="owner:local-a" localUri="file:///a.jpg" remoteUri="https://api.test/a" token="token-a" accessibilityLabel="Fotografía de prueba" />);
     expect(screen.getByTestId('image-owner:local-a').props.source).toEqual({ uri: 'file:///a.jpg' });
+    expect(screen.getByTestId('image-owner:local-a').props.accessibilityLabel).toBe('Fotografía de prueba');
     await fireEvent(screen.getByTestId('image-owner:local-a'), 'load');
     expect(screen.queryByText('No se pudo cargar la imagen.')).toBeNull();
   });

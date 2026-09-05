@@ -1,4 +1,4 @@
-import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View, type ImageProps, type PressableProps, type TextInputProps, type TextProps } from 'react-native';
+import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View, type ImageProps, type PressableProps, type TextInputProps, type TextProps, type ViewProps } from 'react-native';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from './tokens';
@@ -41,9 +41,10 @@ type AuthenticatedImageProps = {
   remoteUri?: string;
   token?: string;
   className?: string;
+  accessibilityLabel?: string;
 };
 
-export function AuthenticatedImage({ identity, localUri, remoteUri, token, className }: AuthenticatedImageProps) {
+export function AuthenticatedImage({ identity, localUri, remoteUri, token, className, accessibilityLabel }: AuthenticatedImageProps) {
   const firstSource = localUri ? 'local' : remoteUri && token ? 'remote' : undefined;
   const [source, setSource] = useState<'local' | 'remote' | undefined>(firstSource);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>(firstSource ? 'loading' : 'error');
@@ -88,6 +89,7 @@ export function AuthenticatedImage({ identity, localUri, remoteUri, token, class
       testID={`image-${identity}`}
       uri={uri}
       token={source === 'remote' ? token : undefined}
+      accessibilityLabel={accessibilityLabel}
       className={className}
       onLoadStart={() => setStatus('loading')}
       onLoad={() => { retrying.current = false; setStatus('ready'); }}
@@ -100,7 +102,7 @@ export function AuthenticatedImage({ identity, localUri, remoteUri, token, class
 
 type BadgeTone = 'neutral' | 'success' | 'warning' | 'error' | 'accent';
 export function AppBadge({ label, tone = 'neutral' }: { label: string; tone?: BadgeTone }) {
-  const toneClasses = { neutral: 'bg-surfaceMuted border-border text-textMuted', success: 'bg-successSoft border-success text-success', warning: 'bg-warningSoft border-warning text-warning', error: 'bg-errorSoft border-error text-error', accent: 'bg-primarySoft border-primary text-primaryDeep' } as const;
+  const toneClasses = { neutral: 'bg-surfaceMuted border-border text-textMuted', success: 'bg-successSoft border-success text-success', warning: 'bg-warningSoft border-warning text-warning', error: 'bg-errorSoft border-error text-error', accent: 'bg-primarySoft border-primaryHighlight text-primaryHighlight' } as const;
   const [background, border, text] = toneClasses[tone].split(' ');
   return <View className={`self-start flex-row items-center rounded-pill border px-md py-xs ${background} ${border}`}><AppText variant="caption" className={text}>{label}</AppText></View>;
 }
@@ -141,7 +143,7 @@ const buttonVariants = {
 
 const buttonTextVariants = {
   primary: 'text-textOnPrimary',
-  secondary: 'text-primaryDeep',
+  secondary: 'text-primaryHighlight',
   danger: 'text-textOnPrimary',
   destructive: 'text-textOnPrimary',
   ghost: 'text-text'
@@ -156,9 +158,9 @@ export function AppButton({ title, loading = false, variant = 'primary', size = 
     accessibilityState={{ disabled: isDisabled, busy: loading }}
     disabled={isDisabled}
     hitSlop={4}
-    className={`min-h-[44px] rounded-small ${padding} items-center justify-center my-xs active:opacity-80 ${fullWidth ? 'w-full' : ''} ${buttonVariants[variant]} ${isDisabled ? 'bg-disabledSurface border-disabledSurface opacity-100' : ''} ${className}`}
+    className={`min-h-[44px] border border-transparent focus:border-focus rounded-small ${padding} items-center justify-center my-xs active:opacity-80 ${fullWidth ? 'w-full' : ''} ${buttonVariants[variant]} ${isDisabled ? 'bg-disabledSurface border-disabledSurface opacity-100' : ''} ${className}`}
   >
-    {loading ? <ActivityIndicator color={variant === 'primary' || variant === 'danger' || variant === 'destructive' ? colors.textOnPrimary : colors.primary} /> : <AppText variant="button" className={isDisabled ? 'text-disabledText' : buttonTextVariants[variant]}>{title}</AppText>}
+    {loading ? <ActivityIndicator color={isDisabled ? colors.disabledText : variant === 'primary' || variant === 'danger' || variant === 'destructive' ? colors.textOnPrimary : colors.primaryHighlight} /> : <AppText variant="button" className={isDisabled ? 'text-disabledText' : buttonTextVariants[variant]}>{title}</AppText>}
   </Pressable>;
 }
 
@@ -208,11 +210,9 @@ export function AuthScreen({ children }: { children: ReactNode }) {
 export function AuthLayout({ children }: { children: ReactNode }) {
   return <AuthScreen><View className="w-full max-w-xl self-center rounded-large border border-border bg-surface p-lg shadow-small">{children}</View></AuthScreen>;
 }
-
-export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <View className={`bg-surfaceElevated border border-border rounded-large p-lg mb-md shadow-small ${className}`}>{children}</View>;
+export function Card({ children, className = '', accessibilityRole, accessibilityLiveRegion }: Pick<ViewProps, 'accessibilityRole' | 'accessibilityLiveRegion'> & { children: ReactNode; className?: string }) {
+  return <View accessibilityRole={accessibilityRole} accessibilityLiveRegion={accessibilityLiveRegion} className={`bg-surfaceElevated border border-border rounded-large p-lg mb-md shadow-small ${className}`}>{children}</View>;
 }
-
 export function TaskSummary({ total, pending, completed }: { total: number; pending: number; completed: number }) {
   return <View accessibilityRole="summary" className="flex-row rounded-large border border-border bg-surfaceMuted p-md mb-md">
     <View className="flex-1 items-center border-r border-border"><AppText variant="heading">{pending}</AppText><AppText variant="caption" muted>Pendientes</AppText></View>
@@ -251,7 +251,7 @@ export function TaskCard({ title, description, dateLabel, imageUrl, imageToken, 
     <View className="flex-row items-start justify-between gap-sm"><AppText variant="title" className="flex-1">{title}</AppText><AppText variant="caption" className={completed ? 'text-success' : 'text-warning'}>{completed ? 'Completada' : 'Pendiente'}</AppText></View>
     {description && <AppText variant="bodySecondary" muted className="mt-xs">{description}</AppText>}
     {(dateLabel || locationLabel) && <AppText variant="caption" muted className="mt-xs">{[dateLabel, locationLabel].filter(Boolean).join(' · ')}</AppText>}
-    {imageUrl && <AppImage uri={imageUrl} token={imageToken} className="w-full h-40 rounded-medium mt-sm" />}
+    {imageUrl && <AppImage uri={imageUrl} token={imageToken} accessibilityLabel={`Fotografía de ${title}`} className="w-full h-40 rounded-medium mt-sm" />}
     <AppButton title="Ver detalles" variant="secondary" onPress={onOpen} accessibilityLabel={`Ver detalles de ${title}`} className="mt-md" />
     <View className="flex-row gap-xs mt-md"><AppButton title={completed ? 'Reabrir' : 'Completar'} loading={toggleLoading} onPress={onToggle} disabled={disabled} className="flex-1" /><AppButton title="Editar" variant="ghost" onPress={onEdit} disabled={disabled} className="flex-1" /><AppButton title="Eliminar" variant="destructive" loading={deleteLoading} onPress={onDelete} disabled={disabled} className="flex-1" /></View>
   </Card>;
@@ -267,7 +267,7 @@ type StateMessageProps = {
 export function StateMessage({ title, actionTitle, onAction, tone = 'neutral' }: StateMessageProps) {
   const toneClass = tone === 'error' ? 'border-error' : tone === 'success' ? 'border-success' : '';
   const textClass = tone === 'error' ? 'text-error' : tone === 'success' ? 'text-success' : '';
-  return <Card className={toneClass}>
+  return <Card accessibilityRole={tone === 'error' ? 'alert' : undefined} accessibilityLiveRegion="polite" className={toneClass}>
     <AppText variant="bodySecondary" className={textClass}>{title}</AppText>
     {actionTitle && onAction && <AppButton title={actionTitle} variant="secondary" onPress={onAction} className="self-start mt-sm" />}
   </Card>;
@@ -281,10 +281,10 @@ type DetailSectionProps = {
 };
 
 export function DetailSection({ title, description, action, variant = 'surface', children }: DetailSectionProps) {
-  return <View accessibilityRole="summary" className={`${variant === 'surface' ? 'rounded-large border border-border bg-surfaceElevated p-lg shadow-small' : ''} mb-md`}>
+  return <View className={`${variant === 'surface' ? 'rounded-large border border-border bg-surfaceElevated p-lg shadow-small' : ''} mb-md`}>
     <View className="flex-row items-start justify-between gap-md">
       <View className="flex-1">
-        <AppText variant="title">{title}</AppText>
+        <AppText variant="title" accessibilityRole="header">{title}</AppText>
         {description && <AppText variant="caption" muted className="mt-xs">{description}</AppText>}
       </View>
       {action}

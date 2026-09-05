@@ -299,10 +299,11 @@ export default function TaskDetail() {
               localUri={image.localUri}
               remoteUri={task.remoteId && image.remoteImageId ? attachmentsApi.imageContentUrl(image, task.remoteId) : undefined}
               token={accessMode === 'remote' ? token ?? undefined : undefined}
+              accessibilityLabel={`Fotografía de ${image.filename}`}
               className="w-full h-52 rounded-medium"
             />
             <AppText variant="caption" muted className="mt-sm">{image.filename}</AppText>
-            <AppButton title="Eliminar imagen" variant="danger" loading={deletingAttachment === image.identity} onPress={() => removeImage(image.identity)} disabled={isBusy} />
+            <AppButton title="Eliminar imagen" variant="destructive" loading={deletingAttachment === image.identity} onPress={() => removeImage(image.identity)} disabled={isBusy} />
           </View>)}</View>}
         </AttachmentSection>
         <DetailSection title="Notas de voz" description="Grabaciones guardadas solo en este dispositivo." action={<AppButton title="Grabar nota" variant="secondary" onPress={() => void startRecording()} disabled={isBusy || Boolean(pendingRecording) || audioState === 'playing'} />}>
@@ -312,7 +313,7 @@ export default function TaskDetail() {
           {audioState === 'recording' && <View className="flex-row gap-sm"><AppButton title="Detener grabación" onPress={() => void stopRecording()} disabled={audioState !== 'recording'} className="flex-1" /><AppButton title="Cancelar" variant="ghost" onPress={() => void cancelRecording()} disabled={audioState !== 'recording'} className="flex-1" /></View>}
           {pendingRecording && <View className="rounded-medium border border-primary bg-primarySoft p-md"><AppText variant="bodySecondary">Vista previa · {formatDuration(pendingRecording.duration)}</AppText><AppButton title={playingKey === 'preview' && playerStatus.playing ? 'Reproduciendo vista previa' : 'Reproducir vista previa'} onPress={playPreview} disabled={isBusy || audioState === 'playing'} /><AppButton title="Detener reproducción" variant="ghost" onPress={() => void stopPlayback()} disabled={playingKey !== 'preview'} /><AppButton title="Cancelar vista previa" variant="ghost" onPress={() => void cancelRecording()} disabled={isBusy} /><AppButton title="Guardar nota de voz" onPress={() => void saveRecording()} disabled={isBusy || audioState !== 'preview'} /></View>}
           {audioError && <StateMessage title={audioError} tone="error" />}
-          {audios.length === 0 ? <InlineEmptyState title="Esta tarea no tiene notas de voz." /> : <View className="gap-md">{audios.map((audio) => <View key={audio.id} className="rounded-medium border border-border bg-surfaceMuted p-md"><MetadataRow label="Duración" value={formatDuration(audio.duration)} /><AppButton title={playingKey === audio.id && playerStatus.playing ? 'Reproduciendo nota de voz' : 'Reproducir nota de voz'} onPress={() => playAudio(audio)} disabled={isBusy || audioState === 'playing'} /><AppButton title="Detener reproducción" variant="ghost" onPress={() => void stopPlayback()} disabled={playingKey !== audio.id} /><AppButton title="Eliminar audio" variant="danger" loading={deletingAttachment === audio.id} onPress={() => removeAudio(audio.id)} disabled={isBusy} /></View>)}</View>}
+          {audios.length === 0 ? <InlineEmptyState title="Esta tarea no tiene notas de voz." /> : <View className="gap-md">{audios.map((audio) => <View key={audio.id} className="rounded-medium border border-border bg-surfaceMuted p-md"><MetadataRow label="Duración" value={formatDuration(audio.duration)} /><AppButton title={playingKey === audio.id && playerStatus.playing ? 'Reproduciendo nota de voz' : 'Reproducir nota de voz'} onPress={() => playAudio(audio)} disabled={isBusy || audioState === 'playing'} /><AppButton title="Detener reproducción" variant="ghost" onPress={() => void stopPlayback()} disabled={playingKey !== audio.id} /><AppButton title="Eliminar audio" variant="destructive" loading={deletingAttachment === audio.id} onPress={() => removeAudio(audio.id)} disabled={isBusy} /></View>)}</View>}
         </DetailSection>
       </ScrollView>
     </Screen>
