@@ -27,7 +27,7 @@ export function AppText({ variant = 'body', muted = false, className = '', ...pr
 
 export function AppLogo({ compact = false }: { compact?: boolean }) {
   return <View className="flex-row items-center gap-sm">
-    <View className="h-12 w-12 rounded-large bg-primarySoft border border-primary items-center justify-center"><AppText variant="title" className="text-primary">TD</AppText></View>
+    <View className="h-12 w-12 rounded-large bg-primarySoft border border-primaryHighlight items-center justify-center"><AppText variant="title" className="text-primaryHighlight">TD</AppText></View>
     {!compact && <View><AppText variant="title">Task desk</AppText><AppText variant="caption" muted>Organiza lo importante</AppText></View>}
   </View>;
 }
@@ -204,6 +204,9 @@ export function AppConfirmModal({ visible, title, description, confirmLabel = 'C
 }
 export function AuthScreen({ children }: { children: ReactNode }) {
   return <Screen><KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : 'height'}><ScrollView className="flex-1" keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} contentContainerClassName="grow"><View className="grow justify-center py-xxl">{children}</View></ScrollView></KeyboardAvoidingView></Screen>;
+}
+export function AuthLayout({ children }: { children: ReactNode }) {
+  return <AuthScreen><View className="w-full max-w-xl self-center rounded-large border border-border bg-surface p-lg shadow-small">{children}</View></AuthScreen>;
 }
 
 export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
