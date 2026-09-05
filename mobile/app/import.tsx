@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FlatList, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../src/auth/AuthProvider';
 import { fetchJsonPlaceholderTodos, type ImportedTodoPreview } from '../src/services/jsonplaceholder-adapter';
 import { getTaskStore } from '../src/services/local-tasks';
-import { AppButton, AppFeedback, AppText, Card, Screen, StateMessage } from '../src/ui/components';
+import { AppButton, AppFeedback, AppHeader, AppText, Card, ExampleBox, ResultSummary, Screen, SelectableRow, StateMessage } from '../src/ui/components';
+
+const EXAMPLE_BOX_HEIGHT = 360;
 
 export default function ImportScreen() {
   const { user, accessMode } = useAuth();
@@ -14,19 +16,21 @@ export default function ImportScreen() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [hasQueried, setHasQueried] = useState(false);
+  const [rejectedCount, setRejectedCount] = useState(0);
   const [error, setError] = useState<string>();
   const [feedback, setFeedback] = useState<string>();
   const requestVersion = useRef(0);
 
   const load = useCallback(async () => {
     const version = ++requestVersion.current;
-    setLoading(true); setError(undefined);
+    setLoading(true); setError(undefined); setHasQueried(true);
     try {
       const result = await fetchJsonPlaceholderTodos();
       const store = await getTaskStore();
       const existing = user ? await store.load(user.id, 'local', null) : { tasks: [] };
       if (version !== requestVersion.current) return;
-      setRecords(result.records); setSelected(new Set());
+      setRecords(result.records); setSelected(new Set()); setRejectedCount(result.rejectedCount);
       setImportedIds(new Set(existing.tasks.flatMap((task) => task.sourceProvider === 'jsonplaceholder' && task.sourceExternalId ? [task.sourceExternalId] : [])));
       setFeedback(`${result.records.length} tareas disponibles${result.rejectedCount ? `; ${result.rejectedCount} rechazadas` : ''}.`);
     } catch (cause) {
@@ -52,12 +56,32 @@ export default function ImportScreen() {
     finally { setBusy(false); }
   };
 
+  const importedCount = records.filter((item) => importedIds.has(item.externalId)).length;
+  const selectableCount = records.length - importedCount;
+  const emptyContent = loading ? <StateMessage title="Consultando tareas de ejemplo..." /> : error ? null : !hasQueried ? <Card className="border-primary"><AppText variant="title">Aún no hay resultados</AppText><AppText variant="bodySecondary" muted className="mt-xs">Consulta las tareas de ejemplo para revisar cuáles quieres agregar.</AppText></Card> : <StateMessage title="No hay tareas disponibles." />;
+
   return <Screen>
-    <View className="flex-row items-center justify-between mb-lg"><AppButton title="‹" variant="ghost" onPress={() => router.back()} accessibilityLabel="Volver" /><AppText variant="title">Importar tareas</AppText><View className="w-10" /></View>
-    <Card className="p-md mb-md"><AppText variant="label">JSONPlaceholder · tareas de demostración</AppText><AppText variant="bodySecondary" muted className="mt-xs">La fuente externa no recibe tu sesión ni datos personales.</AppText><View className="flex-row gap-sm mt-md"><AppButton title={loading ? 'Consultando...' : 'Consultar fuente'} loading={loading} onPress={() => void load()} /><AppButton title="Importar seleccionadas" loading={busy} disabled={!selected.size || accessMode === 'none'} onPress={() => void confirm()} /></View></Card>
-    {feedback && <AppFeedback message={feedback} tone="info" />}
-    {error && <StateMessage title={error} tone="error" actionTitle="Reintentar" onAction={() => void load()} />}
-    {!loading && !error && records.length === 0 && <StateMessage title="No hay tareas disponibles." />}
-    <FlatList data={records} keyExtractor={(item) => item.externalId} renderItem={({ item }) => { const alreadyImported = importedIds.has(item.externalId); return <Card className="p-md mb-sm"><View className="flex-row items-start justify-between"><View className="flex-1"><AppText variant="label">{item.title}</AppText><AppText variant="caption" muted>{alreadyImported ? 'Ya importada' : item.completed ? 'Completada' : 'Pendiente'} · ID externo {item.externalId}</AppText></View><AppButton title={alreadyImported ? 'Importada' : selected.has(item.externalId) ? 'Seleccionada ✓' : 'Seleccionar'} variant={alreadyImported || selected.has(item.externalId) ? 'secondary' : 'ghost'} onPress={() => toggle(item.externalId)} disabled={busy || alreadyImported} /></View></Card>; }} />
+    <ScrollView className="flex-1" contentContainerClassName="pb-lg" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator>
+      <AppHeader title="Tareas de ejemplo" onBack={() => router.back()} />
+      <AppText variant="bodySecondary" muted className="mb-md">Explora tareas de demostración y agrega las que te resulten útiles a tu espacio.</AppText>
+      <Card className="p-md mb-md">
+        <AppText variant="label">Fuente de demostración</AppText>
+        <AppText variant="bodySecondary" className="mt-xs">Estas tareas son datos ficticios utilizados para demostrar la importación desde un servicio externo.</AppText>
+        <AppText variant="caption" muted className="mt-sm">Contenido de demostración proporcionado por JSONPlaceholder.</AppText>
+        <AppButton title={loading ? 'Consultando...' : 'Consultar tareas de ejemplo'} loading={loading} onPress={() => void load()} disabled={busy || loading} className="mt-md" />
+      </Card>
+      {hasQueried && !loading && !error && <ResultSummary received={records.length + rejectedCount} valid={records.length} imported={importedCount} selectable={selectableCount} />}
+      {feedback && <AppFeedback message={feedback} tone="info" />}
+      {error && <StateMessage title={error} tone="error" actionTitle="Reintentar" onAction={() => void load()} />}
+      <ExampleBox title="Resultados" items={records} keyForItem={(item) => item.externalId} maxHeight={EXAMPLE_BOX_HEIGHT} accessibilityLabel="Resultados de tareas de ejemplo" emptyContent={emptyContent} renderItem={(record) => {
+        const alreadyImported = importedIds.has(record.externalId);
+        const isSelected = selected.has(record.externalId);
+        return <SelectableRow title={record.title} description={record.description} statusLabel={alreadyImported ? 'Ya importada · no seleccionable' : `${record.completed ? 'Completada' : 'Pendiente'} · ${isSelected ? 'Seleccionada' : 'Disponible'}`} selected={isSelected} disabled={busy || alreadyImported} onPress={() => toggle(record.externalId)} />;
+      }} />
+      <View className="border-t border-primary bg-surface p-md mt-md">
+        <AppText variant="bodySecondary" className="mb-xs" accessibilityLiveRegion="polite">{selected.size === 1 ? '1 tarea seleccionada' : `${selected.size} tareas seleccionadas`}</AppText>
+        <AppButton title="Importar seleccionadas" loading={busy} disabled={!selected.size || busy || accessMode === 'none'} onPress={() => void confirm()} />
+      </View>
+    </ScrollView>
   </Screen>;
 }
