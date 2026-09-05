@@ -213,6 +213,22 @@ export function Card({ children, className = '' }: { children: ReactNode; classN
   return <View className={`bg-surfaceElevated border border-border rounded-large p-lg mb-md shadow-small ${className}`}>{children}</View>;
 }
 
+export function TaskSummary({ total, pending, completed }: { total: number; pending: number; completed: number }) {
+  return <View accessibilityRole="summary" className="flex-row rounded-large border border-border bg-surfaceMuted p-md mb-md">
+    <View className="flex-1 items-center border-r border-border"><AppText variant="heading">{pending}</AppText><AppText variant="caption" muted>Pendientes</AppText></View>
+    <View className="flex-1 items-center border-r border-border"><AppText variant="heading">{completed}</AppText><AppText variant="caption" muted>Completadas</AppText></View>
+    <View className="flex-1 items-center"><AppText variant="heading">{total}</AppText><AppText variant="caption" muted>Total</AppText></View>
+  </View>;
+}
+
+type SegmentOption<T extends string> = { value: T; label: string; accessibilityLabel?: string };
+export function SegmentedControl<T extends string>({ value, options, onChange, disabled = false }: { value: T; options: readonly SegmentOption<T>[]; onChange: (value: T) => void; disabled?: boolean }) {
+  return <View accessibilityRole="tablist" className="flex-row gap-xs mb-md">
+    {options.map((option) => <Pressable key={option.value} accessibilityRole="tab" accessibilityLabel={option.accessibilityLabel ?? option.label} accessibilityState={{ selected: value === option.value, disabled }} disabled={disabled} onPress={() => onChange(option.value)} className={`min-h-[44px] flex-1 items-center justify-center rounded-small border px-sm py-sm ${value === option.value ? 'bg-primary border-primary' : 'bg-surfaceMuted border-border'}`}>
+      <AppText variant="label" className={value === option.value ? 'text-textOnPrimary' : 'text-text'}>{option.label}</AppText>
+    </Pressable>)}
+  </View>;
+}
 type TaskCardProps = {
   title: string;
   description?: string | null;
@@ -232,12 +248,12 @@ type TaskCardProps = {
 
 export function TaskCard({ title, description, dateLabel, imageUrl, imageToken, completed, locationLabel, onOpen, onToggle, onEdit, onDelete, toggleLoading = false, deleteLoading = false, disabled = false }: TaskCardProps) {
   return <Card className="p-md">
-    <View className="flex-row items-start justify-between gap-sm"><Pressable accessibilityRole="button" accessibilityLabel={`Abrir tarea ${title}`} onPress={onOpen} className="flex-1"><AppText variant="title">{completed ? '✓ ' : ''}{title}</AppText></Pressable><AppText variant="caption" className={completed ? 'text-success' : 'text-warning'}>{completed ? 'Completada' : 'Pendiente'}</AppText></View>
-    {imageUrl && <AppImage uri={imageUrl} token={imageToken} className="w-full h-40 rounded-medium mt-sm" />}
+    <View className="flex-row items-start justify-between gap-sm"><AppText variant="title" className="flex-1">{title}</AppText><AppText variant="caption" className={completed ? 'text-success' : 'text-warning'}>{completed ? 'Completada' : 'Pendiente'}</AppText></View>
     {description && <AppText variant="bodySecondary" muted className="mt-xs">{description}</AppText>}
     {(dateLabel || locationLabel) && <AppText variant="caption" muted className="mt-xs">{[dateLabel, locationLabel].filter(Boolean).join(' · ')}</AppText>}
+    {imageUrl && <AppImage uri={imageUrl} token={imageToken} className="w-full h-40 rounded-medium mt-sm" />}
     <AppButton title="Ver detalles" variant="secondary" onPress={onOpen} accessibilityLabel={`Ver detalles de ${title}`} className="mt-md" />
-    <View className="flex-row gap-xs mt-md"><AppButton title={completed ? 'Reabrir' : 'Completar'} loading={toggleLoading} onPress={onToggle} disabled={disabled} className="flex-1" /><AppButton title="Editar" variant="ghost" onPress={onEdit} disabled={disabled} className="flex-1" /><AppButton title="Eliminar" variant="danger" loading={deleteLoading} onPress={onDelete} disabled={disabled} className="flex-1" /></View>
+    <View className="flex-row gap-xs mt-md"><AppButton title={completed ? 'Reabrir' : 'Completar'} loading={toggleLoading} onPress={onToggle} disabled={disabled} className="flex-1" /><AppButton title="Editar" variant="ghost" onPress={onEdit} disabled={disabled} className="flex-1" /><AppButton title="Eliminar" variant="destructive" loading={deleteLoading} onPress={onDelete} disabled={disabled} className="flex-1" /></View>
   </Card>;
 }
 
