@@ -1,11 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export type TaskFilter = 'all' | 'active' | 'completed';
+export type TaskFilter = 'all' | 'pending' | 'completed';
 
 const taskFilterKey = 'task-manager-selected-task-filter';
-const defaultTaskFilter: TaskFilter = 'all';
+const defaultTaskFilter: TaskFilter = 'pending';
 
-const isTaskFilter = (value: string | null): value is TaskFilter => value === 'all' || value === 'active' || value === 'completed';
+const isTaskFilter = (value: string | null): value is TaskFilter => value === 'all' || value === 'pending' || value === 'completed';
 
 export const preferences = {
   getTaskFilter: async (): Promise<TaskFilter> => {

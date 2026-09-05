@@ -38,7 +38,7 @@ export default function Index() {
   const [updatingId, setUpdatingId] = useState<string>();
   const [deletingId, setDeletingId] = useState<string>();
   const [loggingOut, setLoggingOut] = useState(false);
-  const [filter, setFilter] = useState<TaskFilter>('all');
+  const [filter, setFilter] = useState<TaskFilter>('pending');
   const [filterReady, setFilterReady] = useState(false);
   const [confirmTaskId, setConfirmTaskId] = useState<string>();
   const [feedback, setFeedback] = useState<{ message: string; tone: 'success' | 'error' | 'info' }>();
@@ -184,7 +184,7 @@ export default function Index() {
   }, [filter, filterReady]);
 
   const visibleTasks = useMemo(() => tasks.filter((task) => filter === 'all' || (filter === 'completed' ? task.completed : !task.completed)), [filter, tasks]);
-  const taskSummary = useMemo(() => ({ total: tasks.length, active: tasks.filter((task) => !task.completed).length, completed: tasks.filter((task) => task.completed).length }), [tasks]);
+  const taskSummary = useMemo(() => ({ total: tasks.length, pending: tasks.filter((task) => !task.completed).length, completed: tasks.filter((task) => task.completed).length }), [tasks]);
 
   if (authLoading) return <Screen><StateMessage title="Cargando sesión..." /></Screen>;
   if (restoreError) return <Screen><StateMessage title={restoreError} tone="error" actionTitle="Reintentar" onAction={() => void retryRestore()} /></Screen>;
@@ -292,7 +292,7 @@ export default function Index() {
         <AppButton title="Importar tareas" variant="secondary" onPress={() => router.push('/import' as never)} accessibilityLabel="Importar tareas de demostración" />
         <View className="flex-row gap-sm mb-lg">
           <Card className="flex-1 p-md"><AppText variant="heading">{taskSummary.total}</AppText><AppText variant="caption" muted>Total</AppText></Card>
-          <Card className="flex-1 p-md"><AppText variant="heading" className="text-warning">{taskSummary.active}</AppText><AppText variant="caption" muted>Pendientes</AppText></Card>
+          <Card className="flex-1 p-md"><AppText variant="heading" className="text-warning">{taskSummary.pending}</AppText><AppText variant="caption" muted>Pendientes</AppText></Card>
           <Card className="flex-1 p-md"><AppText variant="heading" className="text-success">{taskSummary.completed}</AppText><AppText variant="caption" muted>Completadas</AppText></Card>
         </View>
         <Card>
@@ -322,8 +322,8 @@ export default function Index() {
           </Card>;
         })}
         <View className="flex-row gap-xs mb-md">
+          <AppButton title={filter === 'pending' ? 'Pendientes ✓' : 'Pendientes'} variant={filter === 'pending' ? 'secondary' : 'ghost'} onPress={() => setFilter('pending')} accessibilityLabel="Mostrar tareas pendientes" className="flex-1" />
           <AppButton title={filter === 'all' ? 'Todas ✓' : 'Todas'} variant={filter === 'all' ? 'secondary' : 'ghost'} onPress={() => setFilter('all')} accessibilityLabel="Mostrar todas las tareas" className="flex-1" />
-          <AppButton title={filter === 'active' ? 'Pendientes ✓' : 'Pendientes'} variant={filter === 'active' ? 'secondary' : 'ghost'} onPress={() => setFilter('active')} accessibilityLabel="Mostrar tareas pendientes" className="flex-1" />
           <AppButton title={filter === 'completed' ? 'Completadas ✓' : 'Completadas'} variant={filter === 'completed' ? 'secondary' : 'ghost'} onPress={() => setFilter('completed')} accessibilityLabel="Mostrar tareas completadas" className="flex-1" />
         </View>
         {loading && <StateMessage title="Cargando tareas..." />}

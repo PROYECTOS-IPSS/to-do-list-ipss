@@ -39,7 +39,7 @@ describe('local task filter preferences', () => {
     });
     try {
       await expect(preferences.getTaskFilter()).resolves.toBe(defaultTaskFilter);
-      await expect(preferences.setTaskFilter('active')).resolves.toBeUndefined();
+      await expect(preferences.setTaskFilter('pending')).resolves.toBeUndefined();
       expect(warnSpy).toHaveBeenCalledTimes(2);
       expect(warnSpy).toHaveBeenNthCalledWith(1, '[preferences] unable to read task filter', readError);
       expect(warnSpy).toHaveBeenNthCalledWith(2, '[preferences] unable to save task filter', saveError);

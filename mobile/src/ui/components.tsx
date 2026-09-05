@@ -1,6 +1,6 @@
 import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View, type ImageProps, type PressableProps, type TextInputProps, type TextProps } from 'react-native';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from './tokens';
 type TextVariant = 'display' | 'heading' | 'title' | 'body' | 'bodySecondary' | 'caption' | 'label' | 'button';
 
@@ -117,7 +117,9 @@ export function AppFeedback({ message, tone = 'info' }: { message?: string; tone
   if (!message) return null;
   const toneClasses = { success: 'bg-success/15 border-success text-success', error: 'bg-error/15 border-error text-error', info: 'bg-primarySoft border-primary text-primary', warning: 'bg-warning/15 border-warning text-warning' } as const;
   const [background, border, text] = toneClasses[tone].split(' ');
-  return <View accessibilityRole="alert" className={`rounded-medium border px-lg py-md mb-md ${background} ${border}`}><AppText variant="bodySecondary" className={`${text} flex-shrink`}>{message}</AppText></View>;
+  return <View accessibilityRole={tone === 'error' ? 'alert' : 'none'} accessibilityLiveRegion="polite" className={`rounded-medium border px-lg py-md mb-md ${background} ${border}`}>
+    <AppText variant="bodySecondary" className={`${text} flex-shrink`}>{message}</AppText>
+  </View>;
 }
 
 type AppButtonProps = Omit<PressableProps, 'children'> & {
@@ -170,8 +172,7 @@ export function AppInput({ label, error, className = '', ...props }: AppInputPro
 }
 
 export function Screen({ children }: { children: ReactNode }) {
-  const insets = useSafeAreaInsets();
-  return <View style={{ flex: 1, paddingTop: insets.top, paddingBottom: insets.bottom, paddingLeft: insets.left, paddingRight: insets.right }} className="bg-background p-lg">{children}</View>;
+  return <SafeAreaView edges={['top', 'right', 'bottom', 'left']} className="flex-1 bg-background p-lg">{children}</SafeAreaView>;
 }
 
 
