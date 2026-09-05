@@ -21,6 +21,7 @@ export type LocalTask = Omit<Task, 'id'> & {
 export type LocalTaskInput = Pick<Task, 'title' | 'description' | 'completed' | 'latitude' | 'longitude' | 'locationAccuracy' | 'locationTimestamp'>;
 export type ImportedTaskInput = { title: string; description: string | null; completed: boolean; provider: string; externalId: string };
 export type LocalFile = { id: string; ownerId: string; taskLocalId: string; kind: 'image'; uri: string; remoteImageId: string | null; contentUrl: string | null; createdAt: string };
+export type LocalAudio = { id: string; ownerId: string; taskLocalId: string; kind: 'audio'; uri: string; filename: string; mimeType: string; size: number; durationSeconds: number; createdAt: string };
 
 export type SyncOperationKind = 'create' | 'update' | 'delete' | 'image';
 export type SyncOperationState = 'pending' | 'sending' | 'confirmed' | 'conflict' | 'failed' | 'review';
@@ -48,7 +49,7 @@ type TaskRow = {
   source_external_id: string | null;
 };
 
-type FileRow = { id: string; owner_id: string; task_local_id: string; kind: 'image'; uri: string; remote_image_id: string | null; content_url: string | null; created_at: string };
+type FileRow = { id: string; owner_id: string; task_local_id: string; kind: 'image' | 'audio'; uri: string; filename: string | null; mime_type: string | null; size: number | null; duration_seconds: number | null; remote_image_id: string | null; content_url: string | null; remote_audio_id: string | null; created_at: string };
 type SyncOperationRow = { operation_id: string; owner_id: string; task_local_id: string; kind: SyncOperationKind; payload: string; expected_version: string | null; state: SyncOperationState; attempts: number; last_error: string | null; retry_after_at: string | null; created_at: string; updated_at: string };
 const rowToOperation = (row: SyncOperationRow): SyncOperation => ({ operationId: row.operation_id, ownerId: row.owner_id, taskLocalId: row.task_local_id, kind: row.kind, payload: row.payload, expectedVersion: row.expected_version, state: row.state, attempts: row.attempts, lastError: row.last_error, retryAfterAt: row.retry_after_at, createdAt: row.created_at, updatedAt: row.updated_at });
 
@@ -81,14 +82,13 @@ const rowToTask = (row: TaskRow): LocalTask => ({
 });
 
 const rowToFile = (row: FileRow): LocalFile => ({
-  id: row.id,
-  ownerId: row.owner_id,
-  taskLocalId: row.task_local_id,
-  kind: row.kind,
-  uri: row.uri,
-  remoteImageId: row.remote_image_id,
-  contentUrl: row.content_url,
-  createdAt: row.created_at
+  id: row.id, ownerId: row.owner_id, taskLocalId: row.task_local_id, kind: 'image', uri: row.uri,
+  remoteImageId: row.remote_image_id, contentUrl: row.content_url, createdAt: row.created_at
+});
+const rowToAudio = (row: FileRow): LocalAudio => ({
+  id: row.id, ownerId: row.owner_id, taskLocalId: row.task_local_id, kind: 'audio', uri: row.uri,
+  filename: row.filename ?? 'nota.m4a', mimeType: row.mime_type ?? 'audio/mp4', size: row.size ?? 0,
+  durationSeconds: row.duration_seconds ?? 0, createdAt: row.created_at
 });
 
 const values = (ownerId: string, task: LocalTaskInput, localId: string, remoteId: string | null, syncState: SyncState, createdAt: string, updatedAt: string, localUpdatedAt: string, remoteOutcome: RemoteOutcome, deletedAt: string | null = null) => [
@@ -335,6 +335,34 @@ export class LocalTaskRepository {
       await this.db.runAsync("DELETE FROM sync_operations WHERE owner_id = ? AND task_local_id = ? AND kind = 'image' AND state != 'sending'", [ownerId, taskLocalId]);
       await this.db.runAsync('DELETE FROM task_files WHERE owner_id = ? AND task_local_id = ?', [ownerId, taskLocalId]);
       return rows.map((row) => row.uri);
+    });
+  }
+
+  async saveLocalAudio(ownerId: string, taskLocalId: string, audio: Omit<LocalAudio, 'id' | 'ownerId' | 'taskLocalId' | 'kind' | 'createdAt'>): Promise<LocalAudio> {
+    const id = newLocalId();
+    const createdAt = now();
+    const task = await this.find(ownerId, taskLocalId);
+    if (!task) throw new Error('Local task could not be found.');
+    await this.db.runAsync(
+      `INSERT INTO task_files (id, owner_id, task_local_id, kind, uri, filename, mime_type, size, duration_seconds, created_at) VALUES (?, ?, ?, 'audio', ?, ?, ?, ?, ?, ?)`,
+      [id, ownerId, taskLocalId, audio.uri, audio.filename, audio.mimeType, audio.size, audio.durationSeconds, createdAt]
+    );
+    const row = await this.db.getFirstAsync<FileRow>('SELECT * FROM task_files WHERE owner_id = ? AND id = ? AND kind = \'audio\'', [ownerId, id]);
+    if (!row) throw new Error('Local audio could not be stored.');
+    return rowToAudio(row);
+  }
+
+  async listLocalAudios(ownerId: string, taskLocalId: string): Promise<LocalAudio[]> {
+    const rows = await this.db.getAllAsync<FileRow>("SELECT * FROM task_files WHERE owner_id = ? AND task_local_id = ? AND kind = 'audio' ORDER BY created_at DESC", [ownerId, taskLocalId]);
+    return rows.map(rowToAudio);
+  }
+
+  async deleteLocalAudio(ownerId: string, taskLocalId: string, audioId: string): Promise<string | null> {
+    return this.db.withTransactionAsync(async () => {
+      const row = await this.db.getFirstAsync<{ uri: string }>("SELECT uri FROM task_files WHERE owner_id = ? AND task_local_id = ? AND id = ? AND kind = 'audio'", [ownerId, taskLocalId, audioId]);
+      if (!row) return null;
+      await this.db.runAsync("DELETE FROM task_files WHERE owner_id = ? AND task_local_id = ? AND id = ? AND kind = 'audio'", [ownerId, taskLocalId, audioId]);
+      return row.uri;
     });
   }
 

@@ -2,22 +2,22 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ScrollView } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { File } from 'expo-file-system';
-import { useAudioPlayer, useAudioPlayerStatus, type AudioSource } from 'expo-audio';
+import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { useAuth } from '../../src/auth/AuthProvider';
 import { getTaskStore } from '../../src/services/local-tasks';
 import type { LocalTask } from '../../src/services/task-repository';
 import { attachmentsApi, type ImageAttachment as RemoteImageAttachment } from '../../src/services/attachments';
 import { tasksApi } from '../../src/services/tasks';
-import { deleteLocalFile } from '../../src/services/local-media';
+import { deleteLocalFile, copyLocalAudio } from '../../src/services/local-media';
 import { persistCapturedPhoto } from '../../src/services/photo-persistence';
 import { reconcileImages, type DisplayImage } from '../../src/services/image-sources';
 import { requestMicrophonePermission, setAudioModeAsync, takePhoto, RecordingPresets, useAudioRecorder, useAudioRecorderState } from '../../src/services/peripherals';
 import { AppBadge, AppButton, AppConfirmModal, AppFeedback, AppHeader, AppText, AuthenticatedImage, Card, Screen, StateMessage } from '../../src/ui/components';
 
 type ImageAttachment = DisplayImage;
-type AudioAttachment = { id: string; url: string; duration: number; mimeType: string; size: number; createdAt: string };
+type AudioAttachment = { id: string; uri: string; filename: string; duration: number; mimeType: string; size: number; createdAt: string };
 type PendingRecording = { uri: string; duration: number };
-type AudioState = 'idle' | 'requesting_permission' | 'recording' | 'stopping' | 'preview' | 'playing' | 'uploading';
+type AudioState = 'idle' | 'requesting_permission' | 'recording' | 'stopping' | 'preview' | 'playing' | 'persisting';
 
 const formatDuration = (seconds: number) => {
   const safeSeconds = Math.max(0, Math.floor(seconds));
@@ -84,12 +84,10 @@ export default function TaskDetail() {
       }
       setTask(loadedTask);
       const localFiles = (await store.listLocalImages(user.id)).filter((file) => file.taskLocalId === loadedTask.localId);
+      const localAudios = await store.listLocalAudios(user.id, loadedTask.localId);
+      const loadedAudios: AudioAttachment[] = localAudios.map((audio) => ({ id: audio.id, uri: audio.uri, filename: audio.filename, duration: audio.durationSeconds, mimeType: audio.mimeType, size: audio.size, createdAt: audio.createdAt }));
       let remoteImages: RemoteImageAttachment[] = [];
-      let loadedAudios: AudioAttachment[] = [];
-      if (accessMode === 'remote' && token && loadedTask.remoteId) {
-        remoteImages = await attachmentsApi.images(token, loadedTask.remoteId);
-        loadedAudios = await attachmentsApi.audios(token, loadedTask.remoteId);
-      }
+      if (accessMode === 'remote' && token && loadedTask.remoteId) remoteImages = await attachmentsApi.images(token, loadedTask.remoteId);
       const loadedImages = reconcileImages(localFiles, remoteImages);
       setImages(loadedImages); setAudios(loadedAudios);
     } catch {
@@ -122,7 +120,7 @@ export default function TaskDetail() {
   }, [pendingRecording, playerStatus.didJustFinish]);
 
   const addPhoto = async () => {
-    if (imageLoading || deletingAttachment || audioState === 'uploading') return;
+    if (imageLoading || deletingAttachment || audioState === 'persisting') return;
     setImageLoading(true);
     const photoContext = photoContextRef.current;
     try {
@@ -145,7 +143,7 @@ export default function TaskDetail() {
   };
 
   const removeImage = (imageId: string) => {
-    if (deletingAttachment || imageLoading || audioState === 'uploading') return;
+    if (deletingAttachment || imageLoading || audioState === 'persisting') return;
     setConfirmAttachment({ type: 'image', id: imageId });
   };
 
@@ -174,111 +172,84 @@ export default function TaskDetail() {
   };
 
   const removeAudio = (audioId: string) => {
-    if (deletingAttachment || imageLoading || audioState === 'uploading') return;
+    if (deletingAttachment || imageLoading || audioState === 'persisting') return;
     setConfirmAttachment({ type: 'audio', id: audioId });
   };
 
   const confirmRemoveAudio = async (audioId: string) => {
-    if (!token || !task?.remoteId) return;
+    if (!task || !user) return;
     setDeletingAttachment(audioId);
     try {
-      if (playingKey === audioId) {
-        player.pause();
-        await player.seekTo(0);
-        setPlayingKey(undefined);
-      }
-      await attachmentsApi.deleteAudio(token, task.remoteId, audioId);
+      if (playingKey === audioId) await stopPlayback();
+      const store = await getTaskStore();
+      const uri = await store.deleteLocalAudio(user.id, task.localId, audioId);
+      if (uri) deleteLocalFile(uri);
       setAudios((current) => current.filter((audio) => audio.id !== audioId));
       setFeedback({ message: 'Audio eliminado.', tone: 'success' });
     } catch {
       setFeedback({ message: 'No se pudo eliminar el audio. Inténtalo de nuevo.', tone: 'error' });
     } finally {
-      setDeletingAttachment(undefined);
-      setConfirmAttachment(undefined);
+      setDeletingAttachment(undefined); setConfirmAttachment(undefined);
     }
   };
 
   const handleAudioError = (_error: unknown, fallback: string) => {
-    setAudioError(fallback);
-    setFeedback({ message: fallback, tone: 'error' });
+    setAudioError(fallback); setFeedback({ message: fallback, tone: 'error' });
     setAudioState(pendingRecording ? 'preview' : 'idle');
   };
 
   const startRecording = async () => {
     if (audioState !== 'idle' || imageLoading || deletingAttachment) return;
-    setAudioError(undefined);
-    setAudioState('requesting_permission');
+    setAudioError(undefined); setAudioState('requesting_permission');
     try {
       const permission = await requestMicrophonePermission();
       if (!permission.granted) throw new Error('Microphone permission denied.');
       await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: true });
-      await recorder.prepareToRecordAsync();
-      recorder.record();
-      setAudioState('recording');
+      await recorder.prepareToRecordAsync(); recorder.record(); setAudioState('recording');
     } catch (e) { handleAudioError(e, 'No se pudo iniciar la grabación. Inténtalo nuevamente.'); }
   };
 
   const stopRecording = async () => {
     if (audioState !== 'recording') return;
     setAudioState('stopping');
-    const durationBeforeStop = recorderState.durationMillis / 1000;
     try {
+      const before = recorderState.durationMillis / 1000;
       await recorder.stop();
       const uri = recorder.uri;
-      const durationAfterStop = recorder.currentTime;
       const file = inspectRecordingFile(uri);
       await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false });
-      const duration = Number.isFinite(durationBeforeStop) && durationBeforeStop > 0 ? durationBeforeStop : durationAfterStop;
-      if (!uri) throw new Error('Recording URI is missing after stop.');
+      const duration = before > 0 ? before : recorder.currentTime;
+      if (!uri || !file.exists || !file.size) throw new Error('Recording file is unavailable.');
       if (!Number.isFinite(duration) || duration <= 0) throw new Error('Recording duration is invalid.');
-      if (!file.exists) throw new Error('Recording file does not exist after stop.');
-      if (file.size === null || file.size <= 0) throw new Error('Recording file is empty.');
-      setPendingRecording({ uri, duration });
-      setAudioState('preview');
-    } catch (e) {
-      handleAudioError(e, 'No se pudo detener la grabación. Inténtalo nuevamente.');
-    }
+      setPendingRecording({ uri, duration }); setAudioState('preview');
+    } catch (e) { handleAudioError(e, 'No se pudo detener la grabación. Inténtalo nuevamente.'); }
   };
 
   const cancelRecording = async () => {
-    try {
-      if (recorder.isRecording) await recorder.stop();
-      await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false });
-    } catch {
-      // Continue cleanup even if native stop fails.
-    }
+    try { if (recorder.isRecording) await recorder.stop(); } catch { /* best effort */ }
     if (recorder.uri) discardFile(recorder.uri);
     if (pendingRecording) discardFile(pendingRecording.uri);
-    player.pause();
-    void player.seekTo(0);
-    setPendingRecording(undefined);
-    setPlayingKey(undefined);
-    setAudioError(undefined);
-    setAudioState('idle');
+    player.pause(); void player.seekTo(0); setPendingRecording(undefined); setPlayingKey(undefined); setAudioState('idle');
   };
 
   const saveRecording = async () => {
-    if (!pendingRecording || !token || !id || audioState !== 'preview') return;
-    setAudioState('uploading');
-    setAudioError(undefined);
+    if (!pendingRecording || !task || !user || audioState !== 'preview') return;
+    setAudioState('persisting');
     try {
-      const audio = await attachmentsApi.uploadAudio(token, id, pendingRecording.uri, pendingRecording.duration);
-      setAudios((current) => [audio, ...current]);
-      discardFile(pendingRecording.uri);
-      setPendingRecording(undefined);
-      setAudioState('idle');
-      setFeedback({ message: 'Nota de voz guardada.', tone: 'success' });
-    } catch (e) {
-      setAudioState('preview');
-      handleAudioError(e, 'No se pudo guardar el audio. Inténtalo nuevamente.');
-    }
+      const extension = new File(pendingRecording.uri).extension || '.m4a';
+      const filename = `audio-${Date.now()}${extension}`;
+      const uri = await copyLocalAudio(user.id, task.localId, pendingRecording.uri, filename);
+      const info = new File(uri).info();
+      const store = await getTaskStore();
+      const audio = await store.saveLocalAudio(user.id, task.localId, { uri, filename, mimeType: extension === '.m4a' ? 'audio/mp4' : 'audio/*', size: info.size ?? 0, durationSeconds: pendingRecording.duration });
+      discardFile(pendingRecording.uri); setPendingRecording(undefined); setAudioState('idle');
+      setAudios((current) => [{ id: audio.id, uri: audio.uri, filename: audio.filename, duration: audio.durationSeconds, mimeType: audio.mimeType, size: audio.size, createdAt: audio.createdAt }, ...current]);
+      setFeedback({ message: 'Nota de voz guardada localmente y disponible sin conexión.', tone: 'success' });
+    } catch { setAudioState('preview'); handleAudioError(undefined, 'No se pudo guardar localmente la nota de voz.'); }
   };
 
   const stopPlayback = async () => {
-    player.pause();
-    await player.seekTo(0);
-    setPlayingKey(undefined);
-    setAudioState(pendingRecording ? 'preview' : 'idle');
+    player.pause(); await player.seekTo(0); setPlayingKey(undefined); setAudioState(pendingRecording ? 'preview' : 'idle');
   };
 
   const playPreview = () => {
@@ -292,17 +263,9 @@ export default function TaskDetail() {
   };
 
   const playAudio = (audio: AudioAttachment) => {
-    if (!token || !id) return;
     try {
-      const source: AudioSource = {
-        uri: attachmentsApi.audioFileUrl(id, audio.id),
-        headers: { Authorization: `Bearer ${token}` }
-      };
-      player.replace(source);
-      player.play();
-      setPlayingKey(audio.id);
-      setAudioState('playing');
-    } catch (e) { handleAudioError(e, 'Unable to play audio.'); }
+      player.replace(audio.uri); player.play(); setPlayingKey(audio.id); setAudioState('playing');
+    } catch (e) { handleAudioError(e, 'No se pudo reproducir el audio.'); }
   };
 
   if (loading) return <Screen><StateMessage title="Cargando tarea..." /></Screen>;
@@ -312,7 +275,7 @@ export default function TaskDetail() {
   const storedLocation = task.latitude !== null && task.longitude !== null && task.locationAccuracy !== null && task.locationTimestamp !== null
     ? { latitude: task.latitude, longitude: task.longitude, accuracy: task.locationAccuracy, timestamp: task.locationTimestamp }
     : undefined;
-  const isBusy = audioState === 'requesting_permission' || audioState === 'stopping' || audioState === 'uploading' || imageLoading || Boolean(deletingAttachment);
+  const isBusy = audioState === 'requesting_permission' || audioState === 'stopping' || audioState === 'persisting' || imageLoading || Boolean(deletingAttachment);
   const recordingSeconds = recorderState.durationMillis / 1000;
 
   return <>
@@ -328,12 +291,13 @@ export default function TaskDetail() {
         </Card>
         <Card>
           <AppText variant="title">Ubicación</AppText>
-          {storedLocation ? <><AppText variant="bodySecondary" muted className="mt-sm">{storedLocation.latitude}, {storedLocation.longitude}</AppText><AppText variant="caption" muted className="mt-xs">Precisión {Math.round(storedLocation.accuracy)} m · {new Date(storedLocation.timestamp).toLocaleString()}</AppText></> : <AppText variant="bodySecondary" muted className="mt-sm">No hay ubicación asociada.</AppText>}
+          {storedLocation ? <AppText variant="bodySecondary" muted className="mt-sm">{storedLocation.latitude}, {storedLocation.longitude}</AppText> : <AppText variant="bodySecondary" muted className="mt-sm">No hay ubicación asociada.</AppText>}
         </Card>
         <Card>
           <AppText variant="title">Imágenes</AppText>
           <AppButton title={imageLoading ? 'Guardando fotografía...' : 'Añadir fotografía'} variant="secondary" onPress={() => void addPhoto()} disabled={isBusy} />
           {images.length === 0 && <StateMessage title="Esta tarea no tiene imágenes." />}
+ 
           {images.map((image) => <Card key={image.identity} className="p-md">
             <AuthenticatedImage
               identity={`${task.ownerId}:${image.identity}`}
@@ -350,7 +314,7 @@ export default function TaskDetail() {
           <AppText variant="title">Notas de voz</AppText>
           {audioState === 'recording' && <AppText variant="bodySecondary">Grabando... {formatDuration(recordingSeconds)}</AppText>}
           {audioState === 'stopping' && <AppText variant="bodySecondary">Deteniendo grabación...</AppText>}
-          {audioState === 'uploading' && <AppText variant="bodySecondary">Guardando audio...</AppText>}
+          {audioState === 'persisting' && <AppText variant="bodySecondary">Guardando audio localmente...</AppText>}
           {audioState === 'recording' ? <><AppButton title="Detener grabación" onPress={() => void stopRecording()} disabled={audioState !== 'recording'} /><AppButton title="Cancelar grabación" variant="ghost" onPress={() => void cancelRecording()} disabled={audioState !== 'recording'} /></> : <AppButton title="Grabar nota de voz" onPress={() => void startRecording()} disabled={isBusy || Boolean(pendingRecording) || audioState === 'playing'} />}
           {pendingRecording && <Card><AppText variant="bodySecondary">Vista previa · {formatDuration(pendingRecording.duration)}</AppText><AppButton title={playingKey === 'preview' && playerStatus.playing ? 'Reproduciendo vista previa' : 'Reproducir vista previa'} onPress={playPreview} disabled={isBusy || audioState === 'playing'} /><AppButton title="Detener reproducción" variant="ghost" onPress={() => void stopPlayback()} disabled={playingKey !== 'preview'} /><AppButton title="Cancelar vista previa" variant="ghost" onPress={() => void cancelRecording()} disabled={isBusy} /><AppButton title="Guardar nota de voz" onPress={() => void saveRecording()} disabled={isBusy || audioState !== 'preview'} /></Card>}
           {audioError && <StateMessage title={audioError} tone="error" />}

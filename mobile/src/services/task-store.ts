@@ -109,6 +109,16 @@ export class TaskStore {
   deleteLocalImage(ownerId: string, taskLocalId: string, fileId: string) {
     return this.repository.deleteLocalImage(ownerId, taskLocalId, fileId);
   }
+
+  listLocalAudios(ownerId: string, taskLocalId: string) {
+    return this.repository.listLocalAudios(ownerId, taskLocalId);
+  }
+  saveLocalAudio(ownerId: string, taskLocalId: string, audio: Parameters<LocalTaskRepository['saveLocalAudio']>[2]) {
+    return this.repository.saveLocalAudio(ownerId, taskLocalId, audio);
+  }
+  deleteLocalAudio(ownerId: string, taskLocalId: string, audioId: string) {
+    return this.repository.deleteLocalAudio(ownerId, taskLocalId, audioId);
+  }
   listOperations(ownerId: string) {
     return this.repository.listOperations(ownerId);
   }
