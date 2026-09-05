@@ -9,7 +9,7 @@ export interface SqliteExecutor {
   withTransactionAsync<T>(task: () => Promise<T>): Promise<T>;
 }
 
-export const DATABASE_VERSION = 6;
+export const DATABASE_VERSION = 7;
 
 const migration = `
 CREATE TABLE IF NOT EXISTS tasks (
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS task_files (
   id TEXT PRIMARY KEY NOT NULL,
   owner_id TEXT NOT NULL,
   task_local_id TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('image')),
+  kind TEXT NOT NULL CHECK (kind IN ('image', 'audio')),
   uri TEXT NOT NULL,
   created_at TEXT NOT NULL,
   UNIQUE(owner_id, task_local_id, kind)
@@ -89,6 +89,29 @@ CREATE INDEX task_files_owner_task ON task_files(owner_id, task_local_id);
   6: `
 ALTER TABLE task_files ADD COLUMN remote_image_id TEXT;
 ALTER TABLE task_files ADD COLUMN content_url TEXT;
+CREATE UNIQUE INDEX task_files_owner_remote_image ON task_files(owner_id, remote_image_id);
+`,
+  7: `
+CREATE TABLE task_files_v7 (
+  id TEXT PRIMARY KEY NOT NULL,
+  owner_id TEXT NOT NULL,
+  task_local_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('image', 'audio')),
+  uri TEXT NOT NULL,
+  filename TEXT,
+  mime_type TEXT,
+  size INTEGER,
+  duration_seconds REAL,
+  remote_image_id TEXT,
+  content_url TEXT,
+  remote_audio_id TEXT,
+  created_at TEXT NOT NULL
+);
+INSERT INTO task_files_v7 (id, owner_id, task_local_id, kind, uri, remote_image_id, content_url, created_at)
+  SELECT id, owner_id, task_local_id, kind, uri, remote_image_id, content_url, created_at FROM task_files;
+DROP TABLE task_files;
+ALTER TABLE task_files_v7 RENAME TO task_files;
+CREATE INDEX task_files_owner_task ON task_files(owner_id, task_local_id);
 CREATE UNIQUE INDEX task_files_owner_remote_image ON task_files(owner_id, remote_image_id);
 `
 };

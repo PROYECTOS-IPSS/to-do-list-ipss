@@ -13,6 +13,17 @@ export async function copyLocalImage(ownerId: string, taskLocalId: string, sourc
   return destination.uri;
 }
 
+export async function copyLocalAudio(ownerId: string, taskLocalId: string, sourceUri: string, filename: string): Promise<string> {
+  const source = new File(sourceUri);
+  if (!source.exists) throw new Error('Recorded audio is unavailable.');
+  const directory = new Directory(Paths.document, 'task-manager-media', ownerId, taskLocalId, 'audio');
+  directory.create({ idempotent: true, intermediates: true });
+  const destination = new File(directory, filename);
+  await source.copy(destination);
+  if (!destination.exists) throw new Error('Recorded audio was not persisted.');
+  return destination.uri;
+}
+
 export function deleteLocalFile(uri: string): void {
   try {
     const file = new File(uri);
