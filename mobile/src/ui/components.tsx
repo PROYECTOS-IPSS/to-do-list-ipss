@@ -336,3 +336,41 @@ export function DangerZone({ children }: { children: ReactNode }) {
     <View className="mt-md">{children}</View>
   </View>;
 }
+type SelectableRowProps = {
+  title: string;
+  description?: string | null;
+  statusLabel: string;
+  selected: boolean;
+  disabled?: boolean;
+  onPress: () => void;
+};
+
+export function SelectableRow({ title, description, statusLabel, selected, disabled = false, onPress }: SelectableRowProps) {
+  return <Pressable
+    accessibilityRole="checkbox"
+    accessibilityLabel={`${title}. ${statusLabel}`}
+    accessibilityState={{ checked: selected, disabled }}
+    disabled={disabled}
+    onPress={onPress}
+    className={`rounded-medium border p-md ${selected ? 'border-primary bg-primarySoft' : 'border-border bg-surfaceMuted'} ${disabled ? 'opacity-60' : 'active:opacity-80'}`}
+  >
+    <View className="flex-row items-start gap-md">
+      <View className={`mt-xs h-5 w-5 rounded-small border-2 ${selected ? 'border-primary bg-primary' : 'border-borderStrong bg-surface'}`} accessibilityElementsHidden />
+      <View className="flex-1">
+        <AppText variant="label">{title}</AppText>
+        {description && <AppText variant="bodySecondary" muted className="mt-xs">{description}</AppText>}
+        <AppText variant="caption" className={`mt-sm ${disabled ? 'text-textMuted' : selected ? 'text-primaryHighlight' : 'text-textSecondary'}`}>{statusLabel}</AppText>
+      </View>
+    </View>
+  </Pressable>;
+}
+
+export function ResultSummary({ received, valid, imported, selectable, selected }: { received: number; valid: number; imported: number; selectable: number; selected: number }) {
+  return <View accessibilityRole="summary" className="flex-row flex-wrap rounded-large border border-border bg-surfaceMuted p-md mb-md">
+    <View className="w-1/2 p-xs"><AppText variant="heading">{received}</AppText><AppText variant="caption" muted>Recibidas</AppText></View>
+    <View className="w-1/2 p-xs"><AppText variant="heading">{valid}</AppText><AppText variant="caption" muted>Válidas</AppText></View>
+    <View className="w-1/2 p-xs"><AppText variant="heading">{imported}</AppText><AppText variant="caption" muted>Ya importadas</AppText></View>
+    <View className="w-1/2 p-xs"><AppText variant="heading">{selectable}</AppText><AppText variant="caption" muted>Disponibles</AppText></View>
+    <AppText variant="bodySecondary" className="w-full mt-sm text-primaryHighlight">{selected} seleccionadas</AppText>
+  </View>;
+}
