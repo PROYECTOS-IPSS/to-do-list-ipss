@@ -1,5 +1,5 @@
 import { fireEvent, render } from '@testing-library/react-native';
-import { AppButton, ExampleBox, ResultSummary, SelectableRow } from '../components';
+import { AppButton, AppText, DetailSection, ExampleBox, ResultSummary, SelectableRow, StateMessage } from '../components';
 
 describe('import presentation', () => {
   it('renders ExampleBox with bounded internal ScrollView and stable keys', async () => {
@@ -35,5 +35,12 @@ describe('import presentation', () => {
     const summary = await render(<ResultSummary received={10} valid={8} imported={3} selectable={5} />);
     expect(summary.getByText('10')).toBeTruthy(); expect(summary.getByText('8')).toBeTruthy(); expect(summary.getByText('3')).toBeTruthy(); expect(summary.getByText('5')).toBeTruthy();
     expect(summary.queryByText('seleccionadas')).toBeNull();
+  });
+
+  it('announces error states and section titles semantically', async () => {
+    const error = await render(<StateMessage title="No se pudo cargar." tone="error" />);
+    expect(error.getByText('No se pudo cargar.').parent?.props.accessibilityRole).toBe('alert');
+    const section = await render(<DetailSection title="Información principal"><AppText>Contenido</AppText></DetailSection>);
+    expect(section.getByRole('header')).toBeTruthy();
   });
 });
