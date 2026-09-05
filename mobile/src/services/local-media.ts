@@ -7,8 +7,9 @@ export async function copyLocalImage(ownerId: string, taskLocalId: string, sourc
   if (!source.exists) throw new Error('Selected image is unavailable.');
   const directory = mediaDirectory(ownerId);
   directory.create({ idempotent: true, intermediates: true });
-  const destination = new File(directory, `${taskLocalId}${source.extension || '.jpg'}`);
-  await source.copy(destination, { overwrite: true });
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const destination = new File(directory, `${taskLocalId}-${suffix}${source.extension || '.jpg'}`);
+  await source.copy(destination);
   return destination.uri;
 }
 

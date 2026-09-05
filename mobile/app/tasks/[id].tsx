@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ScrollView, View } from 'react-native';
+import { ScrollView } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { File } from 'expo-file-system';
 import { useAudioPlayer, useAudioPlayerStatus, type AudioSource } from 'expo-audio';
 import { useAuth } from '../../src/auth/AuthProvider';
 import { getTaskStore } from '../../src/services/local-tasks';
 import type { LocalTask } from '../../src/services/task-repository';
-import { attachmentsApi } from '../../src/services/attachments';
+import { attachmentsApi, type ImageAttachment as RemoteImageAttachment } from '../../src/services/attachments';
 import { tasksApi } from '../../src/services/tasks';
-import { copyLocalImage, deleteLocalFile } from '../../src/services/local-media';
+import { deleteLocalFile } from '../../src/services/local-media';
+import { persistCapturedPhoto } from '../../src/services/photo-persistence';
+import { reconcileImages, type DisplayImage } from '../../src/services/image-sources';
 import { requestMicrophonePermission, setAudioModeAsync, takePhoto, RecordingPresets, useAudioRecorder, useAudioRecorderState } from '../../src/services/peripherals';
-import { AppBadge, AppButton, AppConfirmModal, AppFeedback, AppHeader, AppImage, AppText, Card, Screen, StateMessage } from '../../src/ui/components';
+import { AppBadge, AppButton, AppConfirmModal, AppFeedback, AppHeader, AppText, AuthenticatedImage, Card, Screen, StateMessage } from '../../src/ui/components';
 
-type ImageAttachment = { id: string; filename: string; url: string; mimeType: string; size: number; createdAt: string; localUri?: string };
+type ImageAttachment = DisplayImage;
 type AudioAttachment = { id: string; url: string; duration: number; mimeType: string; size: number; createdAt: string };
 type PendingRecording = { uri: string; duration: number };
 type AudioState = 'idle' | 'requesting_permission' | 'recording' | 'stopping' | 'preview' | 'playing' | 'uploading';
@@ -56,7 +58,6 @@ export default function TaskDetail() {
   const [audios, setAudios] = useState<AudioAttachment[]>([]);
   const [error, setError] = useState<string>();
   const [audioError, setAudioError] = useState<string>();
-  const [photoUri, setPhotoUri] = useState<string>();
   const [audioState, setAudioState] = useState<AudioState>('idle');
   const [pendingRecording, setPendingRecording] = useState<PendingRecording>();
   const [playingKey, setPlayingKey] = useState<string>();
@@ -65,8 +66,9 @@ export default function TaskDetail() {
   const [feedback, setFeedback] = useState<{ message: string; tone: 'success' | 'error' | 'info' }>();
   const [loading, setLoading] = useState(true);
   const [imageLoading, setImageLoading] = useState(false);
-  const [imageStatuses, setImageStatuses] = useState<Record<string, 'loading' | 'ready' | 'error'>>({});
   const pendingRecordingRef = useRef<PendingRecording | undefined>(undefined);
+  const photoContextRef = useRef('');
+  photoContextRef.current = `${user?.id ?? ''}:${task?.localId ?? ''}`;
 
   const loadData = useCallback(async () => {
     if (!id || !user) return;
@@ -82,14 +84,14 @@ export default function TaskDetail() {
       }
       setTask(loadedTask);
       const localFiles = (await store.listLocalImages(user.id)).filter((file) => file.taskLocalId === loadedTask.localId);
-      const localImages: ImageAttachment[] = localFiles.map((file) => ({ id: file.id, filename: 'Fotografía local', url: file.uri, mimeType: 'image/*', size: 0, createdAt: file.createdAt, localUri: file.uri }));
-      let loadedImages = localImages;
+      let remoteImages: RemoteImageAttachment[] = [];
       let loadedAudios: AudioAttachment[] = [];
       if (accessMode === 'remote' && token && loadedTask.remoteId) {
-        loadedImages = [...await attachmentsApi.images(token, loadedTask.remoteId), ...localImages];
+        remoteImages = await attachmentsApi.images(token, loadedTask.remoteId);
         loadedAudios = await attachmentsApi.audios(token, loadedTask.remoteId);
       }
-      setImages(loadedImages); setAudios(loadedAudios); setImageStatuses(Object.fromEntries(loadedImages.map((image) => [image.id, 'loading'])));
+      const loadedImages = reconcileImages(localFiles, remoteImages);
+      setImages(loadedImages); setAudios(loadedAudios);
     } catch {
       setError('No se pudo cargar la tarea. Comprueba tu conexión e inténtalo nuevamente.');
     } finally {
@@ -122,21 +124,21 @@ export default function TaskDetail() {
   const addPhoto = async () => {
     if (imageLoading || deletingAttachment || audioState === 'uploading') return;
     setImageLoading(true);
+    const photoContext = photoContextRef.current;
     try {
       const photo = await takePhoto();
-      if (!photo || !task || !user) return;
+      if (!photo || !task || !user || photoContextRef.current !== photoContext) return;
       const store = await getTaskStore();
-      if (accessMode !== 'remote' || !token || !task.remoteId) {
-        const uri = await copyLocalImage(user.id, task.localId, photo.uri);
-        const file = await store.saveLocalImage(user.id, task.localId, uri);
-        setImages((current) => [{ id: file.id, filename: 'Fotografía local', url: uri, mimeType: 'image/*', size: 0, createdAt: file.createdAt, localUri: uri }, ...current]);
-      } else {
-        const image = await attachmentsApi.uploadImage(token, task.remoteId, photo.uri, `image-${task.localId}-${photo.uri}`);
-        setImages((current) => [image, ...current]);
-      }
-      setPhotoUri(photo.uri);
-    } catch {
-      setFeedback({ message: 'No se pudo capturar o guardar la foto.', tone: 'error' });
+      const file = await persistCapturedPhoto(store, user.id, task.localId, photo);
+      const uri = file.uri;
+      if (photoContextRef.current !== photoContext) return;
+      setImages((current) => [{ id: file.id, identity: file.id, localFileId: file.id, filename: 'Fotografía local pendiente', url: uri, mimeType: photo.mimeType ?? 'image/jpeg', size: photo.fileSize ?? 0, createdAt: file.createdAt, localUri: uri }, ...current]);
+      setFeedback({ message: 'Fotografía guardada localmente. Pendiente de sincronización.', tone: 'info' });
+    } catch (error) {
+      const message = error instanceof Error && error.message === 'Selected image is unavailable.'
+        ? 'La captura temporal ya no está disponible; toma la fotografía nuevamente.'
+        : 'No se pudo guardar la fotografía en el almacenamiento local.';
+      setFeedback({ message, tone: 'error' });
     } finally {
       setImageLoading(false);
     }
@@ -151,15 +153,17 @@ export default function TaskDetail() {
     if (!task || !user) return;
     setDeletingAttachment(imageId);
     try {
-      const image = images.find((item) => item.id === imageId);
+      const image = images.find((item) => item.identity === imageId);
       const store = await getTaskStore();
-      if (image?.localUri) {
-        await store.deleteLocalFiles(user.id, task.localId);
-        await deleteLocalFile(image.localUri);
-      } else if (token && task.remoteId) {
-        await attachmentsApi.deleteImage(token, task.remoteId, imageId);
+      if (image?.remoteImageId && task.remoteId) {
+        if (!token || accessMode !== 'remote') throw new Error('Remote session required.');
+        await attachmentsApi.deleteImage(token, task.remoteId, image.remoteImageId);
       }
-      setImages((current) => current.filter((image) => image.id !== imageId));
+      if (image?.localFileId) {
+        const uri = await store.deleteLocalImage(user.id, task.localId, image.localFileId);
+        if (uri) deleteLocalFile(uri);
+      }
+      setImages((current) => current.filter((item) => item.identity !== imageId));
       setFeedback({ message: 'Imagen eliminada.', tone: 'success' });
     } catch {
       setFeedback({ message: 'No se pudo eliminar la imagen. Inténtalo de nuevo.', tone: 'error' });
@@ -328,13 +332,19 @@ export default function TaskDetail() {
         </Card>
         <Card>
           <AppText variant="title">Imágenes</AppText>
-          <AppButton title={imageLoading ? 'Subiendo imagen...' : 'Añadir fotografía'} variant="secondary" onPress={() => void addPhoto()} disabled={isBusy} />
-          {photoUri && <AppImage uri={photoUri} className="w-full h-52 rounded-medium mt-sm" />}
+          <AppButton title={imageLoading ? 'Guardando fotografía...' : 'Añadir fotografía'} variant="secondary" onPress={() => void addPhoto()} disabled={isBusy} />
           {images.length === 0 && <StateMessage title="Esta tarea no tiene imágenes." />}
-          {images.map((image) => { const status = imageStatuses[image.id] ?? 'loading'; return <Card key={image.id} className="p-md">
-            {status === 'error' ? <StateMessage title="No se pudo cargar la imagen." tone="error" actionTitle="Reintentar" onAction={() => setImageStatuses((current) => ({ ...current, [image.id]: 'loading' }))} /> : <View className="relative"><AppImage key={`${image.id}-${status}`} uri={image.localUri ?? (task.remoteId ? attachmentsApi.imageFileUrl(task.remoteId, image.id) : image.url)} token={image.localUri ? undefined : token ?? undefined} className="w-full h-52 rounded-medium" onLoadStart={() => setImageStatuses((current) => ({ ...current, [image.id]: 'loading' }))} onLoad={() => setImageStatuses((current) => ({ ...current, [image.id]: 'ready' }))} onError={() => setImageStatuses((current) => ({ ...current, [image.id]: 'error' }))} />{status === 'loading' && <View className="absolute inset-0 items-center justify-center rounded-medium bg-surface/70"><AppText variant="caption">Cargando imagen...</AppText></View>}</View>}
-            <AppText variant="caption" muted className="mt-sm">{image.filename}</AppText><AppButton title="Eliminar imagen" variant="danger" loading={deletingAttachment === image.id} onPress={() => removeImage(image.id)} disabled={isBusy} />
-          </Card>; })}
+          {images.map((image) => <Card key={image.identity} className="p-md">
+            <AuthenticatedImage
+              identity={`${task.ownerId}:${image.identity}`}
+              localUri={image.localUri}
+              remoteUri={task.remoteId && image.remoteImageId ? attachmentsApi.imageContentUrl(image, task.remoteId) : undefined}
+              token={accessMode === 'remote' ? token ?? undefined : undefined}
+              className="w-full h-52 rounded-medium"
+            />
+            <AppText variant="caption" muted className="mt-sm">{image.filename}</AppText>
+            <AppButton title="Eliminar imagen" variant="danger" loading={deletingAttachment === image.identity} onPress={() => removeImage(image.identity)} disabled={isBusy} />
+          </Card>)}
         </Card>
         <Card>
           <AppText variant="title">Notas de voz</AppText>

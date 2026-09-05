@@ -1,9 +1,9 @@
 import { LocalTaskRepository, type LocalTask, type LocalTaskInput } from './task-repository';
 import { TaskHttpError, tasksApi } from './tasks';
 import type { AccessMode } from '../auth/AuthProvider';
-
 export type TaskLoadResult = { tasks: LocalTask[]; source: 'remote' | 'local' };
-export type TaskMutationResult = { task: LocalTask | null; source: 'remote' | 'local' | 'uncertain'; pending: boolean };
+
+export type TaskMutationResult = { task: LocalTask | null; source: 'remote' | 'local' | 'uncertain'; pending: boolean; requiresAuth?: boolean };
 
 const isHttpError = (error: unknown): error is TaskHttpError => error instanceof TaskHttpError;
 
@@ -34,6 +34,7 @@ export class TaskStore {
     } catch (error) {
       if (isHttpError(error)) {
         await this.repository.updateOperation(ownerId, operation.operationId, error.statusCode === 409 ? 'conflict' : 'failed', error.message);
+        if (error.statusCode === 401) return { task: await this.repository.find(ownerId, localTask.localId), source: 'local', pending: true, requiresAuth: true };
         throw error;
       }
       await this.repository.updateOffline(ownerId, localTask.localId, {}, 'unknown');
@@ -53,6 +54,7 @@ export class TaskStore {
     } catch (error) {
       if (isHttpError(error)) {
         await this.repository.updateOperation(ownerId, operation.operationId, error.statusCode === 409 ? 'conflict' : 'failed', error.message);
+        if (error.statusCode === 401) return { task: await this.repository.find(ownerId, task.localId), source: 'local', pending: true, requiresAuth: true };
         throw error;
       }
       return { task: await this.repository.updateOffline(ownerId, task.localId, {}, 'unknown'), source: 'uncertain', pending: true };
@@ -60,7 +62,7 @@ export class TaskStore {
   }
   async remove(ownerId: string, mode: AccessMode, token: string | null, localTask: LocalTask): Promise<TaskMutationResult> {
     const task = await this.repository.markDelete(ownerId, localTask.localId);
-    const operation = task ? await this.repository.enqueueOperation(ownerId, task.localId, 'delete', '{}', localTask.remoteVersion.toString()) : null;
+    const operation = task?.remoteId ? await this.repository.enqueueOperation(ownerId, task.localId, 'delete', '{}', localTask.remoteVersion.toString()) : null;
     if (mode !== 'remote' || !token || !localTask.remoteId || !operation) return { task, source: 'local', pending: Boolean(task) };
     try {
       await tasksApi.remove(token, localTask.remoteId, operation.operationId, localTask.remoteVersion);
@@ -70,6 +72,7 @@ export class TaskStore {
     } catch (error) {
       if (isHttpError(error)) {
         await this.repository.updateOperation(ownerId, operation.operationId, error.statusCode === 409 ? 'conflict' : 'failed', error.message);
+        if (error.statusCode === 401) return { task: await this.repository.find(ownerId, localTask.localId), source: 'local', pending: true, requiresAuth: true };
         throw error;
       }
       return { task: await this.repository.markDelete(ownerId, localTask.localId, 'unknown'), source: 'uncertain', pending: true };
@@ -97,8 +100,14 @@ export class TaskStore {
   deleteLocalFiles(ownerId: string, taskLocalId: string) {
     return this.repository.deleteLocalFiles(ownerId, taskLocalId);
   }
-  saveLocalImage(ownerId: string, taskLocalId: string, uri: string) {
-    return this.repository.saveLocalImage(ownerId, taskLocalId, uri);
+  saveLocalImage(ownerId: string, taskLocalId: string, uri: string, mimeType?: string, filename?: string) {
+    return this.repository.saveLocalImage(ownerId, taskLocalId, uri, mimeType, filename);
+  }
+  confirmImageUpload(ownerId: string, operationId: string, fileId: string, image: Parameters<LocalTaskRepository['confirmImageUpload']>[3]) {
+    return this.repository.confirmImageUpload(ownerId, operationId, fileId, image);
+  }
+  deleteLocalImage(ownerId: string, taskLocalId: string, fileId: string) {
+    return this.repository.deleteLocalImage(ownerId, taskLocalId, fileId);
   }
   listOperations(ownerId: string) {
     return this.repository.listOperations(ownerId);

@@ -1,3 +1,4 @@
+import type { ImageAttachment } from './attachments';
 import type { Task } from './tasks';
 import { migrateDatabase, type SqliteExecutor } from './sqlite';
 
@@ -19,7 +20,7 @@ export type LocalTask = Omit<Task, 'id'> & {
 };
 export type LocalTaskInput = Pick<Task, 'title' | 'description' | 'completed' | 'latitude' | 'longitude' | 'locationAccuracy' | 'locationTimestamp'>;
 export type ImportedTaskInput = { title: string; description: string | null; completed: boolean; provider: string; externalId: string };
-export type LocalFile = { id: string; ownerId: string; taskLocalId: string; kind: 'image'; uri: string; createdAt: string };
+export type LocalFile = { id: string; ownerId: string; taskLocalId: string; kind: 'image'; uri: string; remoteImageId: string | null; contentUrl: string | null; createdAt: string };
 
 export type SyncOperationKind = 'create' | 'update' | 'delete' | 'image';
 export type SyncOperationState = 'pending' | 'sending' | 'confirmed' | 'conflict' | 'failed' | 'review';
@@ -47,7 +48,7 @@ type TaskRow = {
   source_external_id: string | null;
 };
 
-type FileRow = { id: string; owner_id: string; task_local_id: string; kind: 'image'; uri: string; created_at: string };
+type FileRow = { id: string; owner_id: string; task_local_id: string; kind: 'image'; uri: string; remote_image_id: string | null; content_url: string | null; created_at: string };
 type SyncOperationRow = { operation_id: string; owner_id: string; task_local_id: string; kind: SyncOperationKind; payload: string; expected_version: string | null; state: SyncOperationState; attempts: number; last_error: string | null; retry_after_at: string | null; created_at: string; updated_at: string };
 const rowToOperation = (row: SyncOperationRow): SyncOperation => ({ operationId: row.operation_id, ownerId: row.owner_id, taskLocalId: row.task_local_id, kind: row.kind, payload: row.payload, expectedVersion: row.expected_version, state: row.state, attempts: row.attempts, lastError: row.last_error, retryAfterAt: row.retry_after_at, createdAt: row.created_at, updatedAt: row.updated_at });
 
@@ -85,6 +86,8 @@ const rowToFile = (row: FileRow): LocalFile => ({
   taskLocalId: row.task_local_id,
   kind: row.kind,
   uri: row.uri,
+  remoteImageId: row.remote_image_id,
+  contentUrl: row.content_url,
   createdAt: row.created_at
 });
 
@@ -99,6 +102,19 @@ export class LocalTaskRepository {
 
   async initialize(): Promise<void> {
     await migrateDatabase(this.db);
+    const files = await this.db.getAllAsync<FileRow>("SELECT * FROM task_files WHERE kind = 'image'");
+    const operations = await this.db.getAllAsync<SyncOperationRow>("SELECT * FROM sync_operations WHERE kind = 'image' AND state != 'confirmed'");
+    const queuedFileIds = new Set(operations.flatMap((operation) => {
+      try {
+        const payload = JSON.parse(operation.payload) as { fileId?: unknown };
+        return typeof payload.fileId === 'string' ? [payload.fileId] : [];
+      } catch {
+        return [];
+      }
+    }));
+    for (const file of files) {
+      if (!queuedFileIds.has(file.id)) await this.enqueueOperation(file.owner_id, file.task_local_id, 'image', JSON.stringify({ fileId: file.id, uri: file.uri, mimeType: 'image/jpeg', filename: 'task-image.jpg' }));
+    }
   }
 
   async list(ownerId: string): Promise<LocalTask[]> {
@@ -191,8 +207,16 @@ export class LocalTaskRepository {
       const existing = await this.find(ownerId, localId);
       if (!existing) return null;
       if (!existing.remoteId) {
-        await this.db.runAsync('DELETE FROM tasks WHERE owner_id = ? AND local_id = ?', [ownerId, localId]);
-        return null;
+        const operations = await this.db.getAllAsync<{ kind: SyncOperationKind; state: SyncOperationState }>(
+          'SELECT kind, state FROM sync_operations WHERE owner_id = ? AND task_local_id = ?',
+          [ownerId, localId]
+        );
+        const creationWasNeverSent = operations.some((operation) => operation.kind === 'create' && operation.state === 'pending');
+        if (creationWasNeverSent && existing.remoteOutcome === 'none') {
+          await this.db.runAsync('DELETE FROM sync_operations WHERE owner_id = ? AND task_local_id = ?', [ownerId, localId]);
+          await this.db.runAsync('DELETE FROM tasks WHERE owner_id = ? AND local_id = ?', [ownerId, localId]);
+          return null;
+        }
       }
       const timestamp = now();
       const outcome: RemoteOutcome = remoteOutcome === 'unknown' ? 'unknown' : existing.remoteOutcome;
@@ -258,17 +282,19 @@ export class LocalTaskRepository {
     });
   }
 
-  async saveLocalImage(ownerId: string, taskLocalId: string, uri: string): Promise<LocalFile> {
+  async saveLocalImage(ownerId: string, taskLocalId: string, uri: string, mimeType = 'image/jpeg', filename = 'task-image.jpg'): Promise<LocalFile> {
     return this.db.withTransactionAsync(async () => {
       const task = await this.db.getFirstAsync<{ local_id: string }>('SELECT local_id FROM tasks WHERE owner_id = ? AND local_id = ?', [ownerId, taskLocalId]);
       if (!task) throw new Error('Local task not found.');
       const timestamp = now();
+      const fileId = newLocalId();
       await this.db.runAsync(
-        `INSERT INTO task_files (id, owner_id, task_local_id, kind, uri, created_at) VALUES (?, ?, ?, 'image', ?, ?) ON CONFLICT(owner_id, task_local_id, kind) DO UPDATE SET uri = excluded.uri, created_at = excluded.created_at`,
-        [newLocalId(), ownerId, taskLocalId, uri, timestamp]
+        `INSERT INTO task_files (id, owner_id, task_local_id, kind, uri, created_at) VALUES (?, ?, ?, 'image', ?, ?)`,
+        [fileId, ownerId, taskLocalId, uri, timestamp]
       );
-      const row = await this.db.getFirstAsync<FileRow>("SELECT * FROM task_files WHERE owner_id = ? AND task_local_id = ? AND kind = 'image'", [ownerId, taskLocalId]);
-      if (!row) throw new Error('Local image could not be stored.');
+      const operation = await this.enqueueOperation(ownerId, taskLocalId, 'image', JSON.stringify({ fileId, uri, mimeType, filename }));
+      const row = await this.db.getFirstAsync<FileRow>('SELECT * FROM task_files WHERE owner_id = ? AND id = ?', [ownerId, fileId]);
+      if (!row || operation.taskLocalId !== taskLocalId) throw new Error('Local image could not be stored.');
       return rowToFile(row);
     });
   }
@@ -277,9 +303,36 @@ export class LocalTaskRepository {
     const rows = await this.db.getAllAsync<FileRow>("SELECT * FROM task_files WHERE owner_id = ? AND kind = 'image'", [ownerId]);
     return rows.map(rowToFile);
   }
+  async confirmImageUpload(ownerId: string, operationId: string, fileId: string, image: ImageAttachment): Promise<void> {
+    await this.db.withTransactionAsync(async () => {
+      await this.db.runAsync(
+        'UPDATE task_files SET remote_image_id = ?, content_url = ? WHERE owner_id = ? AND id = ?',
+        [image.id, image.contentUrl ?? null, ownerId, fileId]
+      );
+      await this.db.runAsync('UPDATE sync_operations SET state = ?, last_error = NULL, retry_after_at = NULL, updated_at = ? WHERE owner_id = ? AND operation_id = ?', ['confirmed', now(), ownerId, operationId]);
+    });
+  }
+  async deleteLocalImage(ownerId: string, taskLocalId: string, fileId: string): Promise<string | null> {
+    return this.db.withTransactionAsync(async () => {
+      const file = await this.db.getFirstAsync<{ uri: string }>('SELECT uri FROM task_files WHERE owner_id = ? AND task_local_id = ? AND id = ?', [ownerId, taskLocalId, fileId]);
+      if (!file) return null;
+      const operations = await this.db.getAllAsync<SyncOperationRow>("SELECT * FROM sync_operations WHERE owner_id = ? AND task_local_id = ? AND kind = 'image' AND state != 'sending'", [ownerId, taskLocalId]);
+      for (const operation of operations) {
+        try {
+          const payload = JSON.parse(operation.payload) as { fileId?: unknown };
+          if (payload.fileId === fileId) await this.db.runAsync('DELETE FROM sync_operations WHERE owner_id = ? AND operation_id = ?', [ownerId, operation.operation_id]);
+        } catch {
+          // Invalid durable operations remain available for explicit review.
+        }
+      }
+      await this.db.runAsync('DELETE FROM task_files WHERE owner_id = ? AND task_local_id = ? AND id = ?', [ownerId, taskLocalId, fileId]);
+      return file.uri;
+    });
+  }
   async deleteLocalFiles(ownerId: string, taskLocalId: string): Promise<string[]> {
     return this.db.withTransactionAsync(async () => {
       const rows = await this.db.getAllAsync<{ uri: string }>('SELECT uri FROM task_files WHERE owner_id = ? AND task_local_id = ?', [ownerId, taskLocalId]);
+      await this.db.runAsync("DELETE FROM sync_operations WHERE owner_id = ? AND task_local_id = ? AND kind = 'image' AND state != 'sending'", [ownerId, taskLocalId]);
       await this.db.runAsync('DELETE FROM task_files WHERE owner_id = ? AND task_local_id = ?', [ownerId, taskLocalId]);
       return rows.map((row) => row.uri);
     });
@@ -356,13 +409,26 @@ export class LocalTaskRepository {
     });
   }
   async confirmCreate(ownerId: string, localId: string, task: Task): Promise<LocalTask> {
-    await this.db.runAsync(
-      `UPDATE tasks SET remote_id = ?, title = ?, description = ?, completed = ?, latitude = ?, longitude = ?, location_accuracy = ?, location_timestamp = ?, created_at = ?, updated_at = ?, remote_version = ?, sync_state = 'clean', remote_outcome = 'none', deleted_at = NULL WHERE owner_id = ? AND local_id = ?`,
-      [task.id, task.title, task.description, task.completed ? 1 : 0, task.latitude, task.longitude, task.locationAccuracy, task.locationTimestamp, task.createdAt, task.updatedAt, task.version, ownerId, localId]
-    );
-    const result = await this.find(ownerId, localId);
-    if (!result) throw new Error('Synced task could not be stored locally.');
-    return result;
+    return this.db.withTransactionAsync(async () => {
+      const current = await this.db.getFirstAsync<TaskRow>('SELECT * FROM tasks WHERE owner_id = ? AND local_id = ?', [ownerId, localId]);
+      if (!current) throw new Error('Synced task could not be stored locally.');
+      const deleted = current.deleted_at !== null;
+      await this.db.runAsync(
+        `UPDATE tasks SET remote_id = ?, title = ?, description = ?, completed = ?, latitude = ?, longitude = ?, location_accuracy = ?, location_timestamp = ?, created_at = ?, updated_at = ?, remote_version = ?, sync_state = ?, remote_outcome = 'none' WHERE owner_id = ? AND local_id = ?`,
+        [task.id, task.title, task.description, task.completed ? 1 : 0, task.latitude, task.longitude, task.locationAccuracy, task.locationTimestamp, task.createdAt, task.updatedAt, task.version, deleted ? 'pending_delete' : 'clean', ownerId, localId]
+      );
+      if (deleted) {
+        const operationId = newLocalId();
+        const timestamp = now();
+        await this.db.runAsync(
+          `INSERT INTO sync_operations (operation_id, owner_id, task_local_id, kind, payload, expected_version, state, attempts, last_error, created_at, updated_at) VALUES (?, ?, ?, 'delete', '{}', ?, 'pending', 0, NULL, ?, ?)`,
+          [operationId, ownerId, localId, task.version.toString(), timestamp, timestamp]
+        );
+      }
+      const result = await this.find(ownerId, localId);
+      if (!result) throw new Error('Synced task could not be stored locally.');
+      return result;
+    });
   }
 
   updateOperation(ownerId: string, operationId: string, state: SyncOperationState, error: string | null = null, retryAfterAt: string | null = null) {

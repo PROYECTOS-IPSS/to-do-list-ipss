@@ -7,7 +7,8 @@ import { preferences, type TaskFilter } from '../src/services/preferences';
 import { getTaskStore } from '../src/services/local-tasks';
 import type { LocalTask, LocalTaskInput, SyncOperation } from '../src/services/task-repository';
 import { TaskHttpError, tasksApi } from '../src/services/tasks';
-import { copyLocalImage, deleteLocalFile } from '../src/services/local-media';
+import { deleteLocalFile } from '../src/services/local-media';
+import { persistCapturedPhoto } from '../src/services/photo-persistence';
 import type { TaskStore } from '../src/services/task-store';
 import type { TaskLocation } from '../src/services/location-validation';
 import { AppBadge, AppButton, AppConfirmModal, AppFeedback, AppInput, AppLogo, AppText, Card, Screen, StateMessage, TaskCard } from '../src/ui/components';
@@ -50,6 +51,7 @@ export default function Index() {
   const editingTask = tasks.find((item) => item.localId === editingId);
   const { locationLoading, photoLoading, attachLocation, removeLocation, attachPhoto } = useTaskComposer({ token, accessMode, ownerId: user?.id ?? null, taskStore, task: editingTask, saving, setTasks, setLocation, setPhotoUri, setPhotoPending, setFeedback });
   const loadVersion = useRef(0);
+  const imageLoadVersion = useRef(0);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -88,7 +90,8 @@ export default function Index() {
     try {
       const result = await syncService.run(user.id, token, accessMode, { force: manual });
       if (!mounted.current || version !== loadVersion.current) return;
-      setFeedback({ message: result.failed || result.conflicts || result.review ? 'Sincronización requiere revisión.' : 'Sincronización completada.', tone: result.failed || result.conflicts || result.review ? 'info' : 'success' });
+      const message = result.messages?.slice(0, 3).join(' ') ?? (result.failed || result.conflicts || result.review ? 'Sincronización requiere revisión.' : 'Sincronización completada.');
+      setFeedback({ message, tone: result.failed || result.conflicts || result.review ? 'info' : 'success' });
       await loadTasks();
     } catch {
       if (mounted.current && version === loadVersion.current) setFeedback({ message: 'No se pudo sincronizar. Los cambios locales se conservaron.', tone: 'error' });
@@ -141,6 +144,7 @@ export default function Index() {
     return () => { active = false; };
   }, [syncOperations, tasks, token]);
   useEffect(() => {
+    const version = ++imageLoadVersion.current;
     if (!user || tasks.length === 0) { setTaskImageUrls({}); return; }
     let active = true;
     void getTaskStore().then(async (store) => {
@@ -150,17 +154,19 @@ export default function Index() {
         // ponytail: one attachment metadata request per remote task; use server list previews if scale requires it.
         const remoteEntries = await Promise.all(tasks.filter((task) => task.remoteId).map(async (task) => {
           try {
-            const images = await attachmentsApi.images(token, task.remoteId as string) as Array<{ id: string }>;
-            return images[0] ? [task.localId, attachmentsApi.imageFileUrl(task.remoteId as string, images[0].id)] as const : null;
+            const images = await attachmentsApi.images(token, task.remoteId as string);
+            return images[0] ? [task.localId, attachmentsApi.imageContentUrl(images[0], task.remoteId as string)] as const : null;
           } catch {
             return null;
           }
         }));
-        remoteEntries.forEach((entry) => { if (entry) entries[entry[0]] = entry[1]; });
+        remoteEntries.forEach((entry) => {
+          if (entry && !entries[entry[0]]) entries[entry[0]] = entry[1];
+        });
       }
-      if (active) setTaskImageUrls(entries);
+      if (active && version === imageLoadVersion.current) setTaskImageUrls(entries);
     }).catch(() => {
-      if (active) setFeedback({ message: 'No se pudieron cargar las imágenes locales.', tone: 'error' });
+      if (active && version === imageLoadVersion.current) setFeedback({ message: 'No se pudieron cargar las imágenes locales.', tone: 'error' });
     });
     return () => { active = false; };
   }, [accessMode, tasks, token, user]);
@@ -200,20 +206,21 @@ export default function Index() {
       };
       if (editingId && !taskToUpdate) throw new Error('La tarea que intentas editar ya no está disponible.');
       const result = editingId && taskToUpdate ? await taskStore.update(ownerId, accessMode, token, taskToUpdate, input) : await taskStore.create(ownerId, accessMode, token, input);
+      if (!result.task) throw new Error('La tarea no se pudo guardar localmente.');
       const savedTask = result.task;
-      if (!savedTask) throw new Error('La tarea no se pudo guardar localmente.');
-      setTasks((current) => wasEditing ? current.map((item) => item.localId === savedTask.localId ? savedTask : item) : [savedTask, ...current]);
+      setTasks((current) => wasEditing ? current.map((item) => item.localId === savedTask.localId ? savedTask : item) : [savedTask, ...current.filter((item) => item.localId !== savedTask.localId)]);
+      let photoSavedLocally = false;
       if (photoPending && photoUri) {
-        if (result.source === 'remote' && savedTask.remoteId && token) {
-          try { await attachmentsApi.uploadImage(token, savedTask.remoteId, photoUri, `image-${savedTask.localId}-${photoUri}`); }
-          catch { setFeedback({ message: 'La tarea se guardó, pero no se pudo subir la imagen.', tone: 'error' }); }
-        } else {
-          const localUri = await copyLocalImage(ownerId, savedTask.localId, photoUri);
-          await taskStore.saveLocalImage(ownerId, savedTask.localId, localUri);
-        }
+        const file = await persistCapturedPhoto(taskStore, ownerId, savedTask.localId, { uri: photoUri, width: 0, height: 0 });
+        const localUri = file.uri;
+        imageLoadVersion.current += 1;
+        setTaskImageUrls((current) => ({ ...current, [savedTask.localId]: localUri }));
+        photoSavedLocally = true;
       }
       setTitle(''); setDescription(''); setEditingId(undefined); setLocation(undefined); setPhotoUri(undefined); setPhotoPending(false);
-      if (result.pending) setFeedback({ message: result.source === 'uncertain' ? 'Guardada localmente; resultado remoto incierto. Pendiente de sincronización.' : 'Guardada localmente. Pendiente de sincronización.', tone: 'info' });
+      if (photoSavedLocally) setFeedback({ message: 'Tarea y fotografía guardadas localmente. La fotografía está pendiente de sincronización.', tone: 'info' });
+      else if (result.requiresAuth) setFeedback({ message: 'Tarea guardada localmente. La sesión ya no autoriza el envío; inicia sesión de nuevo para sincronizar.', tone: 'info' });
+      else if (result.pending) setFeedback({ message: result.source === 'uncertain' ? 'Guardada localmente; resultado remoto incierto. Pendiente de sincronización.' : 'Guardada localmente. Pendiente de sincronización.', tone: 'info' });
       else setFeedback({ message: wasEditing ? 'Tarea actualizada.' : 'Tarea creada.', tone: 'success' });
     } catch (error) {
       if (error instanceof TaskHttpError && error.statusCode === 409) void loadTasks();
@@ -280,7 +287,8 @@ export default function Index() {
       contentContainerClassName="pb-xxl"
       ListHeaderComponent={<View>
         <View className="flex-row items-start justify-between mb-lg"><View className="flex-row items-center gap-md flex-1"><AppLogo compact /><View className="flex-1"><AppText variant="caption" muted>Hola{authenticatedUser.name ? `, ${authenticatedUser.name}` : ''}</AppText><AppText variant="display">Task desk</AppText><AppText variant="bodySecondary" muted>Organiza tu día con calma.</AppText></View></View><AppButton title="Cerrar sesión" variant="ghost" loading={loggingOut} onPress={() => void handleLogout()} accessibilityLabel="Cerrar sesión" /></View>
-        <View className="flex-row items-center justify-between mb-md"><AppBadge label="Tu espacio" tone="accent" /><AppFeedback message={feedback?.message} tone={feedback?.tone} /></View>
+        <AppBadge label="Tu espacio" tone="accent" />
+        <AppFeedback message={syncing ? 'Sincronizando cambios pendientes…' : feedback?.message} tone={feedback?.tone} />
         <AppButton title="Importar tareas" variant="secondary" onPress={() => router.push('/import' as never)} accessibilityLabel="Importar tareas de demostración" />
         <View className="flex-row gap-sm mb-lg">
           <Card className="flex-1 p-md"><AppText variant="heading">{taskSummary.total}</AppText><AppText variant="caption" muted>Total</AppText></Card>
@@ -324,21 +332,21 @@ export default function Index() {
         {!loading && !error && tasks.length > 0 && visibleTasks.length === 0 && <StateMessage title="Ninguna tarea coincide con este filtro." />}
       </View>}
       data={visibleTasks}
-      keyExtractor={(task) => task.id}
+      keyExtractor={(task) => task.localId}
       renderItem={({ item }) => <TaskCard
         title={item.title}
         description={item.description}
         dateLabel={new Date(item.createdAt).toLocaleDateString()}
-        imageUrl={taskImageUrls[item.id]}
+        imageUrl={taskImageUrls[item.localId]}
         imageToken={token ?? undefined}
         completed={item.completed}
         locationLabel={item.latitude !== null && item.longitude !== null && item.locationAccuracy !== null && item.locationTimestamp !== null ? `Ubicación · precisión ${Math.round(item.locationAccuracy)} m` : undefined}
-        onOpen={() => router.push(`/tasks/${item.id}` as never)}
+        onOpen={() => router.push(`/tasks/${item.localId}` as never)}
         onToggle={() => void toggleTask(item)}
         onEdit={() => editTask(item)}
-        onDelete={() => removeTask(item.id)}
-        toggleLoading={updatingId === item.id}
-        deleteLoading={deletingId === item.id}
+        onDelete={() => removeTask(item.localId)}
+        toggleLoading={updatingId === item.localId}
+        deleteLoading={deletingId === item.localId}
         disabled={Boolean(updatingId || deletingId || saving)}
       />}
       ListFooterComponent={<View className="h-xxl" />}

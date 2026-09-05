@@ -174,6 +174,54 @@ describe('LocalTaskRepository on real SQLite', () => {
     await expect(repository.saveLocalImage('bob', alice.localId, 'file:///leak.jpg')).rejects.toThrow('not found');
     expect(await repository.listLocalImages('alice')).toHaveLength(0);
   });
+
+  it('keeps distinct image metadata and durable upload identities', async () => {
+    const stored = await repository.createOffline('user-a', input);
+    const first = await repository.saveLocalImage('user-a', stored.localId, 'file:///one.jpg', 'image/jpeg', 'one.jpg');
+    const second = await repository.saveLocalImage('user-a', stored.localId, 'file:///two.png', 'image/png', 'two.png');
+
+    expect(await repository.listLocalImages('user-a')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: first.id, uri: 'file:///one.jpg' }),
+      expect.objectContaining({ id: second.id, uri: 'file:///two.png' })
+    ]));
+    const operations = await repository.listOperations('user-a');
+    expect(operations).toHaveLength(2);
+    expect(operations.map((operation) => JSON.parse(operation.payload))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ fileId: first.id, uri: first.uri, mimeType: 'image/jpeg', filename: 'one.jpg' }),
+      expect.objectContaining({ fileId: second.id, uri: second.uri, mimeType: 'image/png', filename: 'two.png' })
+    ]));
+  });
+
+  it('reconciles one confirmed image without removing another', async () => {
+    const stored = await repository.createOffline('user-a', input);
+    const first = await repository.saveLocalImage('user-a', stored.localId, 'file:///one.jpg');
+    const second = await repository.saveLocalImage('user-a', stored.localId, 'file:///two.jpg');
+    const operation = (await repository.listOperations('user-a')).find((item) => JSON.parse(item.payload).fileId === first.id);
+    expect(operation).toBeDefined();
+
+    await repository.confirmImageUpload('user-a', operation?.operationId ?? '', first.id, {
+      id: 'remote-one', taskId: 'remote-task', filename: 'one.jpg', url: '/uploads/images/one.jpg',
+      contentUrl: '/api/tasks/remote-task/images/remote-one/file', mimeType: 'image/jpeg', size: 3, createdAt: first.createdAt
+    });
+    expect(await repository.listLocalImages('user-a')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: first.id, uri: first.uri, remoteImageId: 'remote-one', contentUrl: '/api/tasks/remote-task/images/remote-one/file' }),
+      expect.objectContaining({ id: second.id, uri: second.uri, remoteImageId: null })
+    ]));
+    expect(await repository.listOperations('user-a')).toEqual([expect.objectContaining({ kind: 'image', state: 'pending' })]);
+  });
+
+  it('recovers legacy image metadata with one owner-scoped upload operation', async () => {
+    const stored = await repository.createOffline('user-a', input);
+    database.prepare("INSERT INTO task_files (id, owner_id, task_local_id, kind, uri, created_at) VALUES (?, ?, ?, 'image', ?, ?)").run('legacy-file', 'user-a', stored.localId, 'file:///legacy.jpg', '2026-09-03T00:00:00.000Z');
+
+    await repository.initialize();
+    await repository.initialize();
+
+    const imageOperations = (await repository.listOperations('user-a')).filter((operation) => operation.kind === 'image');
+    expect(imageOperations).toHaveLength(1);
+    expect(JSON.parse(imageOperations[0].payload)).toEqual(expect.objectContaining({ fileId: 'legacy-file', uri: 'file:///legacy.jpg' }));
+    expect(await repository.listOperations('other-owner')).toEqual([]);
+  });
   it('persists stable operation metadata across reopening', async () => {
     const stored = await repository.createOffline('user-a', input);
     const operation = await repository.enqueueOperation('user-a', stored.localId, 'create', JSON.stringify(input));
@@ -223,5 +271,15 @@ describe('LocalTaskRepository on real SQLite', () => {
     await expect(repository.importTasks('alice', [record])).resolves.toMatchObject({ imported: 0, skipped: 1 });
     await expect(repository.importTasks('bob', [record])).resolves.toMatchObject({ imported: 1, skipped: 0 });
     expect(await repository.listOperations('alice')).toHaveLength(2);
+  });
+  it('cancels never-sent local creation and its queued work atomically', async () => {
+    const stored = await repository.createOffline('user-a', input);
+    await repository.enqueueOperation('user-a', stored.localId, 'create', JSON.stringify(input));
+    await repository.updateOffline('user-a', stored.localId, { title: 'Edición local' });
+    await repository.enqueueOperation('user-a', stored.localId, 'update', JSON.stringify({ title: 'Edición local' }));
+
+    expect(await repository.markDelete('user-a', stored.localId)).toBeNull();
+    expect(await repository.find('user-a', stored.localId)).toBeNull();
+    expect(await repository.listOperations('user-a')).toEqual([]);
   });
 });
