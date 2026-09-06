@@ -16,24 +16,24 @@ Funcionalidades principales:
 
 ## Stack resumido
 
-| Área | Tecnologías principales |
-|---|---|
-| Mobile | Expo SDK 57, React Native 0.86.3, React 19.2.3, Expo Router, TypeScript 6, NativeWind 4 y SQLite |
-| Backend | Express 5, TypeScript 5.9, Zod, JWT, Multer y Prisma 6 |
-| Datos remotos | PostgreSQL 16.6 |
-| Desarrollo | Yarn Classic 1.22.22, Docker Compose y Expo Development Build |
-| Pruebas | Jest, Testing Library, Supertest y ts-jest |
+| Área          | Tecnologías principales                                                                          |
+| ------------- | ------------------------------------------------------------------------------------------------ |
+| Mobile        | Expo SDK 57, React Native 0.86.3, React 19.2.3, Expo Router, TypeScript 6, NativeWind 4 y SQLite |
+| Backend       | Express 5, TypeScript 5.9, Zod, JWT, Multer y Prisma 6                                           |
+| Datos remotos | PostgreSQL 16.6                                                                                  |
+| Desarrollo    | Yarn Classic 1.22.22, Docker Compose y Expo Development Build                                    |
+| Pruebas       | Jest, Testing Library, Supertest y ts-jest                                                       |
 
 ## Estado funcional
 
-| Funcionalidad | Local/offline | Remota | Estado |
-|---|---|---|---|
-| Autenticación | Sesión e identidad previamente validadas conservadas en SecureStore | JWT emitido y validado por backend | Vigente |
-| Tareas | SQLite por usuario; cambios inmediatos | PostgreSQL mediante sincronización | Vigente |
-| Fotografías | Archivo en filesystem y metadata en SQLite | Upload, metadata y descarga protegida | Vigente |
-| GPS | Coordenadas completas persistidas con tarea | Incluido al crear o actualizar tarea | Vigente |
-| Notas de voz | Archivo y metadata locales; reproducción sin conexión | API backend existente, no consumida por flujo móvil estable | Parcial deliberado |
-| Importación | Selección y procedencia persistidas localmente | JSONPlaceholder como fuente ficticia; al sincronizar, checkout móvil envía la tarea sin procedencia externa | Vigente con límite documentado |
+| Funcionalidad | Local/offline                                                       | Remota                                                                                                      | Estado                         |
+| ------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| Autenticación | Sesión e identidad previamente validadas conservadas en SecureStore | JWT emitido y validado por backend                                                                          | Vigente                        |
+| Tareas        | SQLite por usuario; cambios inmediatos                              | PostgreSQL mediante sincronización                                                                          | Vigente                        |
+| Fotografías   | Archivo en filesystem y metadata en SQLite                          | Upload, metadata y descarga protegida                                                                       | Vigente                        |
+| GPS           | Coordenadas completas persistidas con tarea                         | Incluido al crear o actualizar tarea                                                                        | Vigente                        |
+| Notas de voz  | Archivo y metadata locales; reproducción sin conexión               | API backend existente, no consumida por flujo móvil estable                                                 | Parcial deliberado             |
+| Importación   | Selección y procedencia persistidas localmente                      | JSONPlaceholder como fuente ficticia; al sincronizar, checkout móvil envía la tarea sin procedencia externa | Vigente con límite documentado |
 
 “Parcial deliberado” significa que audio remoto móvil no pertenece al alcance estable actual. Grabación y reproducción local sí funcionan; upload, descarga y sincronización móvil de audio no están conectados.
 
@@ -102,6 +102,10 @@ Entorno reproducible comprobado por configuración vigente:
 
 Docker no se instala ni se inicia mediante `yarn setup`; script solo valida disponibilidad de `docker compose`. APIs nativas usadas por SecureStore, SQLite, cámara, GPS y audio requieren Development Build. Expo Go no es superficie de validación del proyecto.
 
+## Notas de instalación
+
+**En la carpeta `./entrega/` se encuentra `task-manager-development.apk`, con una development build lista para ser instalada en un dispositivo android, las instrucciones más detalladas al respecto están dentro de `./entrega/README.md`.**
+
 ## Instalación automática
 
 Desde raíz:
@@ -156,14 +160,14 @@ yarn setup --non-interactive --api-url http://IP_LAN_DEL_HOST:3000
 
 Existe un único `.env` local en raíz:
 
-| Variable | Consumidor | Uso |
-|---|---|---|
-| `POSTGRES_DB` | Compose | Nombre de base Docker |
-| `POSTGRES_USER` | Compose | Usuario PostgreSQL Docker |
-| `POSTGRES_PASSWORD` | Compose | Password PostgreSQL Docker |
-| `JWT_SECRET` | Backend | Firma y validación JWT |
-| `BACKEND_PORT` | Compose/scripts | Puerto publicado del backend en host |
-| `EXPO_PUBLIC_API_URL` | Metro/mobile | URL HTTP pública alcanzable por dispositivo |
+| Variable              | Consumidor      | Uso                                         |
+| --------------------- | --------------- | ------------------------------------------- |
+| `POSTGRES_DB`         | Compose         | Nombre de base Docker                       |
+| `POSTGRES_USER`       | Compose         | Usuario PostgreSQL Docker                   |
+| `POSTGRES_PASSWORD`   | Compose         | Password PostgreSQL Docker                  |
+| `JWT_SECRET`          | Backend         | Firma y validación JWT                      |
+| `BACKEND_PORT`        | Compose/scripts | Puerto publicado del backend en host        |
+| `EXPO_PUBLIC_API_URL` | Metro/mobile    | URL HTTP pública alcanzable por dispositivo |
 
 Reglas:
 
@@ -178,29 +182,29 @@ Reglas:
 
 Todos desde raíz salvo indicación contraria.
 
-| Acción | Comando |
-|---|---|
-| Instalar dependencias | `yarn install --frozen-lockfile` |
-| Preparar `.env` | `yarn setup --non-interactive --api-url http://IP_LAN_DEL_HOST:3000` |
-| Docker + backend + Metro | `yarn dev:docker` |
-| Estado Compose | `yarn status:docker` |
-| Logs Compose | `yarn logs:docker` |
-| Detener Compose | `yarn stop:docker` |
-| Rebuild backend/migrate sin cache | `yarn rebuild:docker` |
-| Metro normal | `yarn mobile` |
-| Metro Development Client | `yarn mobile:dev-client` |
-| Backend host en desarrollo | `yarn backend` |
-| Backend host | `yarn backend:start` |
-| Typecheck producto | `yarn typecheck` |
-| Typecheck tests backend | `yarn typecheck:tests` |
-| Lint monorepo | `yarn lint` |
-| Todas las pruebas | `yarn test` |
-| Pruebas backend | `yarn test:backend` |
-| Pruebas mobile | `yarn test:mobile` |
-| Generar Prisma Client | `yarn workspace task-manager-backend prisma:generate` |
-| Validar Prisma schema | `yarn workspace task-manager-backend exec prisma validate` |
-| Estado de migraciones | `yarn workspace task-manager-backend exec prisma migrate status` |
-| Development Build Android local | `yarn workspace task-manager-mobile android` |
+| Acción                            | Comando                                                              |
+| --------------------------------- | -------------------------------------------------------------------- |
+| Instalar dependencias             | `yarn install --frozen-lockfile`                                     |
+| Preparar `.env`                   | `yarn setup --non-interactive --api-url http://IP_LAN_DEL_HOST:3000` |
+| Docker + backend + Metro          | `yarn dev:docker`                                                    |
+| Estado Compose                    | `yarn status:docker`                                                 |
+| Logs Compose                      | `yarn logs:docker`                                                   |
+| Detener Compose                   | `yarn stop:docker`                                                   |
+| Rebuild backend/migrate sin cache | `yarn rebuild:docker`                                                |
+| Metro normal                      | `yarn mobile`                                                        |
+| Metro Development Client          | `yarn mobile:dev-client`                                             |
+| Backend host en desarrollo        | `yarn backend`                                                       |
+| Backend host                      | `yarn backend:start`                                                 |
+| Typecheck producto                | `yarn typecheck`                                                     |
+| Typecheck tests backend           | `yarn typecheck:tests`                                               |
+| Lint monorepo                     | `yarn lint`                                                          |
+| Todas las pruebas                 | `yarn test`                                                          |
+| Pruebas backend                   | `yarn test:backend`                                                  |
+| Pruebas mobile                    | `yarn test:mobile`                                                   |
+| Generar Prisma Client             | `yarn workspace task-manager-backend prisma:generate`                |
+| Validar Prisma schema             | `yarn workspace task-manager-backend exec prisma validate`           |
+| Estado de migraciones             | `yarn workspace task-manager-backend exec prisma migrate status`     |
+| Development Build Android local   | `yarn workspace task-manager-mobile android`                         |
 
 Backend ejecutado directamente en host requiere `DATABASE_URL`, `JWT_SECRET` y opcionalmente `PORT`/`UPLOAD_DIR`; flujo recomendado de desarrollo es Docker porque construye esas variables desde `.env` raíz.
 

@@ -14,7 +14,7 @@
 
 ## Fuera de P2
 
-No hay sincronización automática, reintentos, cola ejecutora ni resolución automática de conflictos. Esas garantías requieren P3.
+No hay sincronización automática, reintentos, cola ejecutora ni resolución automática de conflictos. Esas garantías reaquieren P3.
 
 Audio offline no se presenta como subida exitosa: tarea local puede grabar vista previa, pero persistencia/subida de audio requiere tarea remota.
 
@@ -24,4 +24,3 @@ Audio offline no se presenta como subida exitosa: tarea local puede grabar vista
 - `npm test`: backend 61 tests; mobile 77 tests; todo pasa.
 - `npm run lint --workspace mobile`: no existe script `lint` en workspace mobile.
 - Expo export/build Android y prueba con hardware real quedan pendientes de entorno nativo; `expo-sqlite` requiere recompilar Development Build.
-La verificación detallada de persistencia, aislamiento y estados pendientes está en [`P2_1_PERSISTENCE_VERIFICATION.md`](./P2_1_PERSISTENCE_VERIFICATION.md).
