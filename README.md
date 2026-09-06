@@ -104,7 +104,7 @@ Docker no se instala ni se inicia mediante `yarn setup`; script solo valida disp
 
 ## Notas de instalación
 
-**En la carpeta `./entrega/` se encuentra `task-manager-development.apk`, con una development build lista para ser instalada en un dispositivo android, las instrucciones más detalladas al respecto están dentro de `./entrega/README.md`.**
+**En la carpeta `./entrega/` se encuentran instrucciones para descargar una APK development build desde GitHub lista para ser instalada en un dispositivo android, las instrucciones más detalladas al respecto están dentro de `./entrega/README.md`.**
 
 ## Instalación automática
 
