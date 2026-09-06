@@ -6,4 +6,6 @@ node_modules/
 backend/dist/
 mobile/.expo/
 backend/uploads/
-/build-output/
+/entrega/*.apk
+/build-output/*.apk
+/eas-local-work/
